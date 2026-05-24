@@ -1,0 +1,10 @@
+/target
+*.swp
+.env
+.env.local
+/workspace
+/node_modules
+*.log
+*.jsonl
+.DS_Store
+/tmp_*
