@@ -45,7 +45,7 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 
 # CLI & Interface
 clap = { version = "4.3", features = ["derive"] }
-indicatif = "0.17" # Progress bars
+indicatif = "0.18" # Progress bars
 inquire = "0.6"
 
 # Logging & Error Handling
