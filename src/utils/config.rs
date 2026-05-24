@@ -1,7 +1,7 @@
+use anyhow::{anyhow, Result};
 use std::env;
-use anyhow::{Result, anyhow};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ProxyMode {
@@ -99,8 +99,11 @@ impl Config {
         Self {
             do_token: env::var("DIGITALOCEAN_TOKEN").ok(),
             do_ssh_key_id: env::var("DO_SSH_KEY_ID").ok(),
-            database_url: env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://osintuser:WENYANULTRA_SECURE_PASS@localhost:5432/osintdb".to_string()),
-            ollama_url: env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string()),
+            database_url: env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgres://osintuser:WENYANULTRA_SECURE_PASS@localhost:5432/osintdb".to_string()
+            }),
+            ollama_url: env::var("OLLAMA_URL")
+                .unwrap_or_else(|_| "http://localhost:11434".to_string()),
             max_tokens: env::var("MAX_TOKENS")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -142,7 +145,8 @@ impl Config {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(33), // Default ~1000/month
             caido_api_key: env::var("CAIDO_API_KEY").ok(),
-            caido_api_url: env::var("CAIDO_API_URL").unwrap_or_else(|_| "http://localhost:8080/graphql".to_string()),
+            caido_api_url: env::var("CAIDO_API_URL")
+                .unwrap_or_else(|_| "http://localhost:8080/graphql".to_string()),
             mcp_token: env::var("MCP_TOKEN").ok(),
             discord_webhook_url: env::var("DISCORD_WEBHOOK_URL").ok(),
             certstream_keywords: env::var("CERTSTREAM_KEYWORDS")
@@ -180,8 +184,14 @@ impl Config {
             rebuff_url: env::var("REBUFF_URL").ok(),
             rebuff_api_token: env::var("REBUFF_API_TOKEN").ok(),
             policy_file: env::var("POLICY_FILE").ok(),
-            strict_scope: env::var("STRICT_SCOPE").ok().and_then(|s| s.parse().ok()).unwrap_or(false),
-            nuclei_auto_update: env::var("NUCLEI_AUTO_UPDATE").ok().and_then(|s| s.parse().ok()).unwrap_or(false),
+            strict_scope: env::var("STRICT_SCOPE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(false),
+            nuclei_auto_update: env::var("NUCLEI_AUTO_UPDATE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(false),
             h1_username: env::var("H1_USERNAME").ok(),
             h1_api_key: env::var("H1_API_KEY").ok(),
             bugcrowd_api_key: env::var("BUGCROWD_API_KEY").ok(),
@@ -191,7 +201,10 @@ impl Config {
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").ok(),
             gemini_api_keys: env::var("GEMINI_API_KEYS").ok(),
             kimi_api_key: env::var("KIMI_API_KEY").ok(),
-            claude_code_enabled: env::var("CLAUDE_CODE_ENABLED").ok().and_then(|s| s.parse().ok()).unwrap_or(false),
+            claude_code_enabled: env::var("CLAUDE_CODE_ENABLED")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(false),
             antigravity_api_key: env::var("ANTIGRAVITY_API_KEY").ok(),
             antigravity_endpoint: env::var("ANTIGRAVITY_ENDPOINT").ok(),
             azure_openai_key: env::var("AZURE_OPENAI_KEY").ok(),
@@ -220,7 +233,8 @@ impl Config {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(30000),
-            workspace_dir: env::var("MIMIKRI_WORKSPACE").unwrap_or_else(|_| "workspace".to_string()),
+            workspace_dir: env::var("MIMIKRI_WORKSPACE")
+                .unwrap_or_else(|_| "workspace".to_string()),
             shodan_paid_max_hosts_per_scan: env::var("SHODAN_PAID_MAX_HOSTS_PER_SCAN")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -245,7 +259,8 @@ impl Config {
     }
 
     pub fn require_do_token(&self) -> Result<String> {
-        self.do_token.clone()
+        self.do_token
+            .clone()
             .ok_or_else(|| anyhow!("DIGITALOCEAN_TOKEN environment variable not set"))
     }
 }

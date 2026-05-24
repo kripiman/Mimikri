@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use anyhow::{Result, Context};
 use crate::utils::proxy::ProxyManager;
+use anyhow::{Context, Result};
+use std::sync::Arc;
 
 /// Base infrastructure for all LLM providers.
 /// Centralizes proxy management and secure transport creation.
@@ -16,8 +16,13 @@ impl BaseLlmClient {
     /// Creates a secured reqwest::Client using the ProxyManager.
     /// Ensures "Fail-Closed" behavior for Sovereign OPSEC.
     pub async fn get_client(&self, api_host: &str) -> Result<reqwest::Client> {
-        let (_, client) = self.proxy_manager.get_client_fail_closed(api_host)
-            .context(format!("V13 OPSEC: Failed to secure transport for {} through ProxyManager.", api_host))?;
+        let (_, client) = self
+            .proxy_manager
+            .get_client_fail_closed(api_host)
+            .context(format!(
+                "V13 OPSEC: Failed to secure transport for {} through ProxyManager.",
+                api_host
+            ))?;
         Ok(client)
     }
 

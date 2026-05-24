@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use crate::core::ai::traits::LlmClient;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum RouteLevel {

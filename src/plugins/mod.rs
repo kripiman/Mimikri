@@ -1,38 +1,38 @@
-pub mod reconnaissance;
+pub mod compliance;
+pub mod detection_evasion;
 pub mod enumeration;
 pub mod exploitation;
+pub mod intelligence;
 #[cfg(feature = "sovereign")]
 pub mod lateral_movement;
 #[cfg(feature = "sovereign")]
 pub mod persistence;
 #[cfg(feature = "sovereign")]
 pub mod privilege_escalation;
-pub mod compliance;
-pub mod detection_evasion;
-pub mod intelligence;
-pub mod verification;
+pub mod reconnaissance;
 pub mod reporting;
 pub mod triage;
+pub mod verification;
 
 pub mod ffi;
 
 // New flat factories/submodules
 pub mod config;
+pub mod discovery_factory;
 pub mod registry;
 pub mod scanner_factory;
-pub mod discovery_factory;
 
-use async_trait::async_trait;
-pub use crate::models::{TargetHost, Finding, constants, TargetType, DiscoveryResult};
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use crate::core::capability_layer::ScanLayer;
+pub use crate::models::{constants, DiscoveryResult, Finding, TargetHost, TargetType};
+use anyhow::Result;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 // Facade re-exports to preserve exact public API
 pub use config::{GlobalConfig, NmapOptions};
-pub use registry::{PluginRegistry, get_registry};
-pub use scanner_factory::get_all_scanners;
 pub use discovery_factory::get_all_discovery;
+pub use registry::{get_registry, PluginRegistry};
+pub use scanner_factory::get_all_scanners;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Capability {
@@ -57,7 +57,7 @@ pub enum Capability {
     ContainerSecurity,
     AdCoercion,
     PrivilegeEscalation,
-    BruteForce,         // NUEVO
+    BruteForce,          // NUEVO
     CommandInjection,    // NUEVO
     XssScanning,         // NUEVO
     SqlInjection,        // NUEVO
@@ -74,7 +74,7 @@ pub enum Capability {
     CdnDetection,
     TlsFingerprinting,
     ScopeExtraction,
-    AuthStateMachine,   // V14.6: Stateful OAuth/custom auth flow probing
+    AuthStateMachine, // V14.6: Stateful OAuth/custom auth flow probing
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -149,17 +149,22 @@ pub trait ScannerPlugin: Send + Sync {
         policy: std::sync::Arc<dyn crate::core::policy::PolicyProvider>,
         strict_scope: bool,
         approval_gate: std::sync::Arc<crate::core::approval_gate::ApprovalGate>,
-        approval_timeout_secs: Option<u64>
+        approval_timeout_secs: Option<u64>,
     ) -> Result<Vec<Finding>> {
         // 1. Enforce Scope using existing scope_guard
         let mut target_clone = target.clone();
-        if !crate::core::orchestrator::scope_guard::check_scope(&mut target_clone, &policy, strict_scope) {
+        if !crate::core::orchestrator::scope_guard::check_scope(
+            &mut target_clone,
+            &policy,
+            strict_scope,
+        ) {
             return Ok((*target_clone.findings).clone());
         }
 
         // 2. Enforce Destructive Gate
         if self.metadata().is_destructive {
-            let config_allow = target.tactical_context
+            let config_allow = target
+                .tactical_context
                 .get("allow_destructive_probes")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
@@ -171,7 +176,10 @@ pub trait ScannerPlugin: Send + Sync {
 
             // Gate: Env Var
             if std::env::var("MIMIKRI_DESTRUCTIVE").as_deref() != Ok("1") {
-                tracing::warn!("Destructive plugin {} blocked: MIMIKRI_DESTRUCTIVE not set", self.name());
+                tracing::warn!(
+                    "Destructive plugin {} blocked: MIMIKRI_DESTRUCTIVE not set",
+                    self.name()
+                );
                 return Ok(vec![]);
             }
 
@@ -190,10 +198,17 @@ pub trait ScannerPlugin: Send + Sync {
             };
 
             let timeout = approval_timeout_secs
-                .or_else(|| std::env::var("MIMIKRI_APPROVAL_TIMEOUT").ok().and_then(|v| v.parse().ok()))
+                .or_else(|| {
+                    std::env::var("MIMIKRI_APPROVAL_TIMEOUT")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                })
                 .unwrap_or(300);
 
-            if let Ok(Some(req_id)) = approval_gate.request_approval(self.name(), risk, &user, "Automated destructive execution").await {
+            if let Ok(Some(req_id)) = approval_gate
+                .request_approval(self.name(), risk, &user, "Automated destructive execution")
+                .await
+            {
                 if !approval_gate.wait_for_approval(&req_id, timeout).await {
                     tracing::warn!("Destructive plugin {} timed out or rejected.", self.name());
                     return Ok(vec![]);
@@ -232,25 +247,37 @@ pub trait DiscoveryPlugin: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{TargetHost, TargetStatus, TargetType, Finding};
     use crate::core::approval_gate::ApprovalGate;
-    use std::sync::Arc;
+    use crate::models::{Finding, TargetHost, TargetStatus, TargetType};
     use async_trait::async_trait;
+    use std::sync::Arc;
 
     struct DummyPolicy;
     impl crate::core::policy::PolicyProvider for DummyPolicy {
-        fn validate_command(&self, _binary: &str, _args: &[String]) -> Result<()> { Ok(()) }
-        fn is_path_safe(&self, _path: &str) -> bool { true }
-        fn is_target_allowed(&self, _target: &str) -> bool { true }
-        fn is_within_testing_window(&self) -> bool { true }
-        fn get_roe(&self) -> Option<crate::core::policy::RoE> { None }
+        fn validate_command(&self, _binary: &str, _args: &[String]) -> Result<()> {
+            Ok(())
+        }
+        fn is_path_safe(&self, _path: &str) -> bool {
+            true
+        }
+        fn is_target_allowed(&self, _target: &str) -> bool {
+            true
+        }
+        fn is_within_testing_window(&self) -> bool {
+            true
+        }
+        fn get_roe(&self) -> Option<crate::core::policy::RoE> {
+            None
+        }
     }
 
     struct DummyDestructivePlugin;
 
     #[async_trait]
     impl ScannerPlugin for DummyDestructivePlugin {
-        fn name(&self) -> &'static str { "dummy_destructive" }
+        fn name(&self) -> &'static str {
+            "dummy_destructive"
+        }
         fn metadata(&self) -> PluginMetadata {
             PluginMetadata {
                 name: "dummy_destructive".to_string(),
@@ -264,15 +291,19 @@ mod tests {
                 ..PluginMetadata::default()
             }
         }
-        fn capabilities(&self) -> Vec<Capability> { vec![] }
-        async fn check_dependencies(&self) -> Result<bool> { Ok(true) }
+        fn capabilities(&self) -> Vec<Capability> {
+            vec![]
+        }
+        async fn check_dependencies(&self) -> Result<bool> {
+            Ok(true)
+        }
         async fn scan(&self, _target: &TargetHost) -> Result<Vec<Finding>> {
             Ok(vec![Finding::new(
                 "TEST_FINDING",
                 crate::models::Category::Vulnerability,
                 crate::models::Severity::High,
                 "Vulnerable",
-                serde_json::json!({})
+                serde_json::json!({}),
             )])
         }
     }
@@ -302,8 +333,20 @@ mod tests {
             scan_id: None,
             scope_id: "test".to_string(),
         };
-        let res = plugin.execute_safe_scan(&target_no_config, policy.clone(), false, approval_gate.clone(), None).await.unwrap();
-        assert!(res.is_empty(), "Scan should be blocked when both gates are missing");
+        let res = plugin
+            .execute_safe_scan(
+                &target_no_config,
+                policy.clone(),
+                false,
+                approval_gate.clone(),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(
+            res.is_empty(),
+            "Scan should be blocked when both gates are missing"
+        );
 
         // Case 2: Only allow_destructive_probes set, env var missing
         let target_with_config = TargetHost {
@@ -312,16 +355,53 @@ mod tests {
             })),
             ..target_no_config.clone()
         };
-        let res = plugin.execute_safe_scan(&target_with_config, policy.clone(), false, approval_gate.clone(), None).await.unwrap();
-        assert!(res.is_empty(), "Scan should be blocked when env var is missing");
+        let res = plugin
+            .execute_safe_scan(
+                &target_with_config,
+                policy.clone(),
+                false,
+                approval_gate.clone(),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(
+            res.is_empty(),
+            "Scan should be blocked when env var is missing"
+        );
 
         // Case 3: Only env var set, config flag missing
         std::env::set_var("MIMIKRI_DESTRUCTIVE", "1");
-        let res = plugin.execute_safe_scan(&target_no_config, policy.clone(), false, approval_gate.clone(), None).await.unwrap();
-        assert!(res.is_empty(), "Scan should be blocked when config flag is missing");
+        let res = plugin
+            .execute_safe_scan(
+                &target_no_config,
+                policy.clone(),
+                false,
+                approval_gate.clone(),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(
+            res.is_empty(),
+            "Scan should be blocked when config flag is missing"
+        );
 
         // Case 4: Both gates set
-        let res = plugin.execute_safe_scan(&target_with_config, policy.clone(), false, approval_gate.clone(), None).await.unwrap();
-        assert_eq!(res.len(), 1, "Scan should proceed when both gates are set and approved");
+        let res = plugin
+            .execute_safe_scan(
+                &target_with_config,
+                policy.clone(),
+                false,
+                approval_gate.clone(),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            res.len(),
+            1,
+            "Scan should proceed when both gates are set and approved"
+        );
     }
 }

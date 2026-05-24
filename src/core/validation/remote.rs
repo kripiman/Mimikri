@@ -1,8 +1,8 @@
+use crate::models::TargetHost;
 use anyhow::Result;
 use async_trait::async_trait;
-use crate::models::TargetHost;
-use tokio::process::Command;
 use std::process::Stdio;
+use tokio::process::Command;
 
 /// V14.1 Professional Remote Execution Trait
 /// Defines the interface for executing commands on remote targets.
@@ -22,15 +22,20 @@ pub struct SshExecutor {
 impl RemoteExecutor for SshExecutor {
     async fn execute(&self, target: &TargetHost, cmd: &str) -> Result<String> {
         let mut command = Command::new("ssh");
-        
+
         // V15 HARDENING: OPSEC & MITM Mitigation
         // We use 'accept-new' instead of 'no' to prevent blind acceptance of modified host keys.
-        // NOTE: This remains a potential MITM vector if the initial key is not verified. 
+        // NOTE: This remains a potential MITM vector if the initial key is not verified.
         // In a strictly air-gapped or verified deployment, fingerprint pinning should be used.
-        command.arg("-o").arg("StrictHostKeyChecking=accept-new")
-               .arg("-o").arg("UserKnownHostsFile=/dev/null")
-               .arg("-o").arg("BatchMode=yes")
-               .arg("-o").arg("ConnectTimeout=10");
+        command
+            .arg("-o")
+            .arg("StrictHostKeyChecking=accept-new")
+            .arg("-o")
+            .arg("UserKnownHostsFile=/dev/null")
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("ConnectTimeout=10");
 
         if let Some(ref key) = self.key_path {
             command.arg("-i").arg(key);
@@ -42,16 +47,21 @@ impl RemoteExecutor for SshExecutor {
             target.host.clone()
         };
 
-        command.arg(target_str)
-               .arg(cmd)
-               .stdin(Stdio::null())
-               .stdout(Stdio::piped())
-               .stderr(Stdio::piped());
+        command
+            .arg(target_str)
+            .arg(cmd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
-        tracing::info!("🚀 SSH-EXEC: Running remote command on {}: {}", target.host, cmd);
-        
+        tracing::info!(
+            "🚀 SSH-EXEC: Running remote command on {}: {}",
+            target.host,
+            cmd
+        );
+
         let output = command.output().await?;
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
@@ -62,4 +72,3 @@ impl RemoteExecutor for SshExecutor {
         }
     }
 }
-

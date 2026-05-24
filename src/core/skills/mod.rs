@@ -1,10 +1,10 @@
+use crate::core::ai::types::{CavemanLevel, Posture, RouteLevel};
+use crate::models::Finding;
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use anyhow::{Result, Context};
-use serde::{Deserialize, Serialize};
-use crate::models::Finding;
-use crate::core::ai::types::{Posture, RouteLevel, CavemanLevel};
 use tracing::{info, warn};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -49,12 +49,15 @@ impl SkillManager {
     pub fn load_from_dir<P: AsRef<Path>>(dir: P) -> Result<Self> {
         let mut skills = Vec::new();
         let dir_path = dir.as_ref();
-        
+
         if !dir_path.exists() {
-            warn!("⚠️ [Skills] Directory {} does not exist. Starting with empty skill set.", dir_path.display());
-            return Ok(Self { 
-                skills: Vec::new(), 
-                by_category: HashMap::new(), 
+            warn!(
+                "⚠️ [Skills] Directory {} does not exist. Starting with empty skill set.",
+                dir_path.display()
+            );
+            return Ok(Self {
+                skills: Vec::new(),
+                by_category: HashMap::new(),
                 by_tag: HashMap::new(),
                 used_skills: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
             });
@@ -82,11 +85,15 @@ impl SkillManager {
             }
         }
 
-        info!("🧠 [Skills] Loaded {} professional tactical skills from {}", skills.len(), dir_path.display());
+        info!(
+            "🧠 [Skills] Loaded {} professional tactical skills from {}",
+            skills.len(),
+            dir_path.display()
+        );
 
-        Ok(Self { 
-            skills, 
-            by_category, 
+        Ok(Self {
+            skills,
+            by_category,
             by_tag,
             used_skills: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
         })
@@ -102,7 +109,7 @@ impl SkillManager {
     ) -> Vec<&Skill> {
         let category_str = format!("{:?}", finding.core.category);
         let posture_str = format!("{:?}", posture);
-        
+
         let mut candidates: Vec<(usize, u32)> = Vec::new();
         let used_lock = self.used_skills.lock().await;
 
@@ -110,25 +117,40 @@ impl SkillManager {
         if let Some(indices) = self.by_category.get(&category_str) {
             for &i in indices {
                 let s = &self.skills[i];
-                
+
                 // V15: Token redundancy prevention: Skip if already used in this mission
-                if used_lock.contains(&s.id) { continue; }
-                
+                if used_lock.contains(&s.id) {
+                    continue;
+                }
+
                 // Match posture
-                if !s.posture_match.is_empty() && !s.posture_match.contains(&posture_str) { continue; }
-                
+                if !s.posture_match.is_empty() && !s.posture_match.contains(&posture_str) {
+                    continue;
+                }
+
                 // Check preconditions
                 if let Some(pre) = &s.preconditions {
                     if let Some(min_cvss) = pre.min_cvss {
                         let actual_cvss = finding.enrichment.cvss_score.unwrap_or(0.0);
-                        if actual_cvss < min_cvss { continue; }
+                        if actual_cvss < min_cvss {
+                            continue;
+                        }
                     }
                     if let Some(req_ver) = pre.requires_verified {
-                        let verified = finding.evidence.primary.as_ref().map(|e| e.verified).unwrap_or(false);
-                        if req_ver && !verified { continue; }
+                        let verified = finding
+                            .evidence
+                            .primary
+                            .as_ref()
+                            .map(|e| e.verified)
+                            .unwrap_or(false);
+                        if req_ver && !verified {
+                            continue;
+                        }
                     }
                     if let Some(req_tag) = &pre.requires_tag {
-                        if !finding.enrichment.mitre_tags.contains(req_tag) { continue; }
+                        if !finding.enrichment.mitre_tags.contains(req_tag) {
+                            continue;
+                        }
                     }
                 }
 
@@ -146,16 +168,22 @@ impl SkillManager {
                     } else {
                         // Check preconditions even for tag match
                         let s = &self.skills[i];
-                        if used_lock.contains(&s.id) { continue; }
-                        if !s.posture_match.is_empty() && !s.posture_match.contains(&posture_str) { continue; }
-                        
+                        if used_lock.contains(&s.id) {
+                            continue;
+                        }
+                        if !s.posture_match.is_empty() && !s.posture_match.contains(&posture_str) {
+                            continue;
+                        }
+
                         let mut pre_passed = true;
                         if let Some(pre) = &s.preconditions {
                             if let Some(min_cvss) = pre.min_cvss {
-                                if finding.enrichment.cvss_score.unwrap_or(0.0) < min_cvss { pre_passed = false; }
+                                if finding.enrichment.cvss_score.unwrap_or(0.0) < min_cvss {
+                                    pre_passed = false;
+                                }
                             }
                         }
-                        
+
                         if pre_passed {
                             candidates.push((i, 15)); // Tag match starting score
                         }
@@ -181,20 +209,32 @@ impl SkillManager {
     }
 
     /// Builds a compressed injection string and marks skills as used.
-    pub async fn build_injection(&self, matched: &[&Skill], caveman: CavemanLevel) -> Option<String> {
-        if matched.is_empty() { return None; }
+    pub async fn build_injection(
+        &self,
+        matched: &[&Skill],
+        caveman: CavemanLevel,
+    ) -> Option<String> {
+        if matched.is_empty() {
+            return None;
+        }
 
         let mut used_lock = self.used_skills.lock().await;
         let mut fragments = Vec::new();
 
         for s in matched {
-            fragments.push(format!("[MITRE {}] {}", s.mitre.technique.as_deref().unwrap_or(&s.mitre.tactic), s.prompt_fragment));
+            fragments.push(format!(
+                "[MITRE {}] {}",
+                s.mitre.technique.as_deref().unwrap_or(&s.mitre.tactic),
+                s.prompt_fragment
+            ));
             // Mark as used to avoid redundancy in future calls of the same mission
             used_lock.insert(s.id.clone());
         }
 
         let composite = fragments.join(" | ");
-        Some(crate::core::ai::caveman::CavemanOptimizer::optimize_prompt(&composite, caveman))
+        Some(crate::core::ai::caveman::CavemanOptimizer::optimize_prompt(
+            &composite, caveman,
+        ))
     }
 
     /// Resets the usage history (e.g. for a new mission)

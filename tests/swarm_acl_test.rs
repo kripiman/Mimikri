@@ -1,16 +1,28 @@
-use mimikri::models::{Finding, Category, Severity};
 use mimikri::core::orchestrator::swarm::inventory::{SwarmInventory, TrustLevel};
+use mimikri::models::{Category, Finding, Severity};
 
 #[test]
 fn test_swarm_acl_isolation() {
     let inventory = SwarmInventory::new();
 
     // Finding 1: Credential in Scope A
-    let mut f1 = Finding::new("PWD-1", Category::CredentialLeak, Severity::High, "Pass1", serde_json::json!({}));
+    let mut f1 = Finding::new(
+        "PWD-1",
+        Category::CredentialLeak,
+        Severity::High,
+        "Pass1",
+        serde_json::json!({}),
+    );
     f1.core.scope_id = "Scope-A".to_string();
 
     // Finding 2: Credential in Scope B
-    let mut f2 = Finding::new("PWD-2", Category::CredentialLeak, Severity::High, "Pass2", serde_json::json!({}));
+    let mut f2 = Finding::new(
+        "PWD-2",
+        Category::CredentialLeak,
+        Severity::High,
+        "Pass2",
+        serde_json::json!({}),
+    );
     f2.core.scope_id = "Scope-B".to_string();
 
     // Ingest both
@@ -33,12 +45,24 @@ fn test_swarm_acl_global_and_group() {
     let inventory = SwarmInventory::new();
 
     // Global Credential
-    let mut f_global = Finding::new("GLOBAL-1", Category::CredentialLeak, Severity::High, "Pass", serde_json::json!({}));
+    let mut f_global = Finding::new(
+        "GLOBAL-1",
+        Category::CredentialLeak,
+        Severity::High,
+        "Pass",
+        serde_json::json!({}),
+    );
     f_global.core.scope_id = "Admin".to_string();
     inventory.ingest_finding(f_global, TrustLevel::Global);
 
     // Group Credential (shared between A and C)
-    let mut f_group = Finding::new("GROUP-1", Category::CredentialLeak, Severity::High, "Pass", serde_json::json!({}));
+    let mut f_group = Finding::new(
+        "GROUP-1",
+        Category::CredentialLeak,
+        Severity::High,
+        "Pass",
+        serde_json::json!({}),
+    );
     f_group.core.scope_id = "Scope-A".to_string();
     inventory.ingest_finding(f_group, TrustLevel::TrustGroup(vec!["Scope-C".to_string()]));
 

@@ -1,4 +1,4 @@
-use crate::models::{Finding, Category};
+use crate::models::{Category, Finding};
 
 pub struct PocGenerator;
 
@@ -7,9 +7,12 @@ impl PocGenerator {
     pub fn generate_suggested_poc(finding: &Finding) -> Option<String> {
         let title = finding.core.title.to_lowercase();
         let id = finding.core.id.to_lowercase();
-        
+
         // Extract URL if available in evidence
-        let url = finding.evidence.primary.as_ref()
+        let url = finding
+            .evidence
+            .primary
+            .as_ref()
             .and_then(|e| e.data.get("url").or_else(|| e.data.get("uri")))
             .and_then(|u| u.as_str());
 
@@ -20,7 +23,7 @@ impl PocGenerator {
                         return Some(format!("sqlmap -u \"{}\" --batch --banner --current-db", u));
                     }
                 }
-                
+
                 if id.contains("ssti") || title.contains("server-side template injection") {
                     if let Some(u) = url {
                         return Some(format!("commix -u \"{}\" --batch", u));
@@ -32,7 +35,7 @@ impl PocGenerator {
                         return Some(format!("dalfox url \"{}\"", u));
                     }
                 }
-            },
+            }
             Category::ExposedAsset => {
                 if id.contains("source-code") || title.contains("git") {
                     if let Some(u) = url {
@@ -41,17 +44,20 @@ impl PocGenerator {
                 }
                 if id.contains("s3-bucket") {
                     if let Some(u) = url {
-                        return Some(format!("aws s3 ls \"s3://{}\" --no-sign-request", u.replace("http://", "").replace("https://", "")));
+                        return Some(format!(
+                            "aws s3 ls \"s3://{}\" --no-sign-request",
+                            u.replace("http://", "").replace("https://", "")
+                        ));
                     }
                 }
-            },
+            }
             Category::Misconfiguration => {
                 if id.contains("directory-listing") {
                     if let Some(u) = url {
                         return Some(format!("curl -sI \"{}\" | grep \"Index of\"", u));
                     }
                 }
-            },
+            }
             _ => {}
         }
 

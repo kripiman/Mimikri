@@ -1,17 +1,17 @@
+use crate::utils::proxy::ProxyManager;
 use anyhow::{Context, Result};
+use once_cell::sync::Lazy;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{trace, Resource};
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
-use tracing_subscriber::fmt;
+use regex::Regex;
 use std::io;
 use std::sync::Arc;
-use once_cell::sync::Lazy;
-use regex::Regex;
 use tonic::transport::Endpoint;
 use tower::service_fn;
-use crate::utils::proxy::ProxyManager;
 use tracing::info;
+use tracing_subscriber::fmt;
+use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -38,11 +38,11 @@ impl<W: io::Write> io::Write for MaskingWriter<W> {
         let has_at = buf.contains(&b'@');
         let has_key = buf.windows(4).any(|w| w.eq_ignore_ascii_case(b"key="));
         let has_pass = buf.windows(9).any(|w| w.eq_ignore_ascii_case(b"password="));
-        
+
         if !has_at && !has_key && !has_pass {
             return self.inner.write(buf);
         }
-        
+
         let s = String::from_utf8_lossy(buf);
         let masked = SENSITIVE_REGEX.replace_all(&s, |caps: &regex::Captures| {
             let cap = caps.get(0).unwrap().as_str();
@@ -68,13 +68,18 @@ struct MaskingMakeWriter;
 impl<'a> fmt::MakeWriter<'a> for MaskingMakeWriter {
     type Writer = MaskingWriter<io::Stdout>;
     fn make_writer(&self) -> Self::Writer {
-        MaskingWriter { inner: io::stdout() }
+        MaskingWriter {
+            inner: io::stdout(),
+        }
     }
 }
 
-pub fn init_telemetry(endpoint: Option<String>, json_logs: bool, pm: Option<Arc<ProxyManager>>) -> Result<()> {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "mimikri=info".into());
+pub fn init_telemetry(
+    endpoint: Option<String>,
+    json_logs: bool,
+    pm: Option<Arc<ProxyManager>>,
+) -> Result<()> {
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "mimikri=info".into());
 
     if let Some(endpoint_url) = endpoint {
         // OpenTelemetry Setup
@@ -82,20 +87,22 @@ pub fn init_telemetry(endpoint: Option<String>, json_logs: bool, pm: Option<Arc<
             // PROXY-AWARE TELEMETRY (V14.1)
             let pm_inner = proxy_mgr.clone();
             let endpoint_url_clone = endpoint_url.clone();
-            
-            let channel = Endpoint::from_shared(endpoint_url.clone())?
-                .connect_with_connector_lazy(service_fn(move |_| {
+
+            let channel = Endpoint::from_shared(endpoint_url.clone())?.connect_with_connector_lazy(
+                service_fn(move |_| {
                     let pm = pm_inner.clone();
                     let url = endpoint_url_clone.clone();
                     async move {
                         let parsed = url::Url::parse(&url).map_err(std::io::Error::other)?;
                         let host = parsed.host_str().unwrap_or("localhost");
                         let port = parsed.port_or_known_default().unwrap_or(4317);
-                        pm.tcp_connect_proxied(host, port).await
+                        pm.tcp_connect_proxied(host, port)
+                            .await
                             .map(hyper_util::rt::TokioIo::new)
                             .map_err(std::io::Error::other)
                     }
-                }));
+                }),
+            );
 
             opentelemetry_otlp::new_pipeline()
                 .tracing()
@@ -104,11 +111,9 @@ pub fn init_telemetry(endpoint: Option<String>, json_logs: bool, pm: Option<Arc<
                         .tonic()
                         .with_channel(channel),
                 )
-                .with_trace_config(
-                    trace::Config::default().with_resource(Resource::new(vec![
-                        KeyValue::new("service.name", "mimikri"),
-                    ])),
-                )
+                .with_trace_config(trace::Config::default().with_resource(Resource::new(vec![
+                    KeyValue::new("service.name", "mimikri"),
+                ])))
                 .install_batch(opentelemetry_sdk::runtime::Tokio)
         } else {
             // Direct connection (only for non-stealth or local debug)
@@ -119,11 +124,9 @@ pub fn init_telemetry(endpoint: Option<String>, json_logs: bool, pm: Option<Arc<
                         .tonic()
                         .with_endpoint(&endpoint_url),
                 )
-                .with_trace_config(
-                    trace::Config::default().with_resource(Resource::new(vec![
-                        KeyValue::new("service.name", "mimikri"),
-                    ])),
-                )
+                .with_trace_config(trace::Config::default().with_resource(Resource::new(vec![
+                    KeyValue::new("service.name", "mimikri"),
+                ])))
                 .install_batch(opentelemetry_sdk::runtime::Tokio)
         };
 
@@ -140,7 +143,7 @@ pub fn init_telemetry(endpoint: Option<String>, json_logs: bool, pm: Option<Arc<
 
                 tracing::subscriber::set_global_default(subscriber)
                     .context("Failed to set global subscriber with OpenTelemetry")?;
-            },
+            }
             Err(e) => {
                 // V8 FIX (DEBT-005): Fallback properly without panicking if external OTLP server is dead
                 eprintln!("⚠️ WARNING: Failed to initialize OpenTelemetry on {}: {}. Falling back to standard logs.", endpoint_url, e);
@@ -161,10 +164,9 @@ pub fn init_telemetry(endpoint: Option<String>, json_logs: bool, pm: Option<Arc<
             .with_writer(MaskingMakeWriter)
             .json()
             .finish();
-            
+
         tracing::subscriber::set_global_default(subscriber)
             .context("Failed to set global JSON subscriber")?;
-            
     } else {
         // Standard Pretty Logs
         let subscriber = fmt::Subscriber::builder()
@@ -173,7 +175,7 @@ pub fn init_telemetry(endpoint: Option<String>, json_logs: bool, pm: Option<Arc<
             .with_target(false)
             .with_thread_ids(true)
             .finish();
-            
+
         tracing::subscriber::set_global_default(subscriber)
             .context("Failed to set global subscriber")?;
     }

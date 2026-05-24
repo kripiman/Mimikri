@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::info;
 pub struct NaabuScanner {
     binary_path: String,
 }
@@ -18,9 +18,7 @@ impl Default for NaabuScanner {
 impl NaabuScanner {
     pub fn new() -> Self {
         let path = detect_tool("naabu");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 #[async_trait]
@@ -28,7 +26,7 @@ impl ScannerPlugin for NaabuScanner {
     fn name(&self) -> &'static str {
         crate::models::PLUGIN_NAABU
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -43,7 +41,9 @@ impl ScannerPlugin for NaabuScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -64,7 +64,10 @@ impl ScannerPlugin for NaabuScanner {
             .stderr(Stdio::null())
             .spawn()
             .context("Failed to spawn naabu")?;
-        let output = child.wait_with_output().await.context("Failed to wait for naabu")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed to wait for naabu")?;
         let mut findings = Vec::new();
         let content = String::from_utf8_lossy(&output.stdout);
         if !content.is_empty() {
@@ -72,8 +75,11 @@ impl ScannerPlugin for NaabuScanner {
                 "NAABU-PORT-DISCOVERY",
                 Category::NetworkPort,
                 Severity::Info,
-                &format!("High-speed port discovery successful for {} via naabu.", target.host),
-                serde_json::json!({ "output": content.trim() })
+                &format!(
+                    "High-speed port discovery successful for {} via naabu.",
+                    target.host
+                ),
+                serde_json::json!({ "output": content.trim() }),
             ));
         }
         Ok(findings)

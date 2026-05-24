@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 pub struct MemoryMonitor {
     soft_limit_mb: u32,
@@ -23,11 +23,11 @@ impl MemoryMonitor {
         // Spawn background monitoring task
         let current_clone = Arc::clone(&monitor.current);
         let peak_clone = Arc::clone(&monitor.peak);
-        
+
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
-                
+
                 #[cfg(target_os = "linux")]
                 {
                     let current_clone = Arc::clone(&current_clone);
@@ -40,7 +40,7 @@ impl MemoryMonitor {
                                         if let Ok(kb) = kb_str.parse::<u64>() {
                                             let bytes = kb * 1024;
                                             current_clone.store(bytes, Ordering::Relaxed);
-                                            
+
                                             let p = peak_clone.load(Ordering::Relaxed);
                                             if bytes > p {
                                                 peak_clone.store(bytes, Ordering::Relaxed);
@@ -50,7 +50,8 @@ impl MemoryMonitor {
                                 }
                             }
                         }
-                    }).await;
+                    })
+                    .await;
                 }
             }
         });
@@ -93,14 +94,20 @@ impl MemoryMonitor {
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 let curr = (curr_atom.load(Ordering::Relaxed) / 1_000_000) as u32;
                 let peak = (peak_atom.load(Ordering::Relaxed) / 1_000_000) as u32;
-                
+
                 if curr > hard {
-                    error!("CRITICAL: Memory {}MB/{}MB, triggering shutdown signal", curr, hard);
+                    error!(
+                        "CRITICAL: Memory {}MB/{}MB, triggering shutdown signal",
+                        curr, hard
+                    );
                     std::process::exit(1);
                 } else if curr > soft {
-                    warn!("Memory warning: {}MB/{}MB, activating backpressure", curr, soft);
+                    warn!(
+                        "Memory warning: {}MB/{}MB, activating backpressure",
+                        curr, soft
+                    );
                 }
-                
+
                 info!("Memory Status: {}MB (Peak: {}MB)", curr, peak);
             }
         });

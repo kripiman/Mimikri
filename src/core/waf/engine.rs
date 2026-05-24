@@ -2,13 +2,13 @@ use anyhow::Result;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tracing::{info, warn, debug};
+use std::sync::Arc;
+use tracing::{debug, info, warn};
 
+use super::policy::{EvasionStrategy, StochasticEvasionPolicy};
+use super::profiles::{build_profile_pool, HttpFingerprint, MutatedRequest};
 use crate::core::ai::{AdaptiveContext, OffPathAiEngine};
-use super::profiles::{HttpFingerprint, MutatedRequest, build_profile_pool};
-use super::policy::{StochasticEvasionPolicy, EvasionStrategy};
 
 /// Context about the original request that was blocked.
 #[derive(Debug, Clone)]
@@ -79,9 +79,12 @@ impl WafEvasionEngine {
                     "IpRotation" => Some(EvasionStrategy::IpRotation),
                     _ => None,
                 };
-                
+
                 if let Some(s) = prev_strategy {
-                    debug!("🛡️ WAF-EVASION: Observing failure for previous strategy {:?}", s);
+                    debug!(
+                        "🛡️ WAF-EVASION: Observing failure for previous strategy {:?}",
+                        s
+                    );
                     self.policy.observe_result(s, false);
                 }
             }
@@ -106,7 +109,9 @@ impl WafEvasionEngine {
         match strategy {
             EvasionStrategy::HeaderRotation => self.rotate_fingerprint(original),
             EvasionStrategy::TlsMutation => self.switch_tls_profile(original),
-            EvasionStrategy::AiPayloadRewrite => self.ai_rewrite_payload(original, adaptive_ctx).await,
+            EvasionStrategy::AiPayloadRewrite => {
+                self.ai_rewrite_payload(original, adaptive_ctx).await
+            }
             EvasionStrategy::IpRotation => self.request_new_ip(original),
             EvasionStrategy::Exhausted => Ok(None),
         }
@@ -116,7 +121,8 @@ impl WafEvasionEngine {
         let idx = self.current_idx.fetch_add(1, Ordering::Relaxed);
         let profile = &self.profiles[idx % self.profiles.len()];
 
-        info!("🛡️ WAF-EVASION [Stage 1]: Rotating to profile '{}' (UA: {}...)",
+        info!(
+            "🛡️ WAF-EVASION [Stage 1]: Rotating to profile '{}' (UA: {}...)",
             profile.tls_profile.label(),
             &profile.user_agent[..profile.user_agent.len().min(40)]
         );
@@ -133,7 +139,11 @@ impl WafEvasionEngine {
 
     fn switch_tls_profile(&self, _original: &RequestContext) -> Result<Option<MutatedRequest>> {
         use super::profiles::TlsProfile;
-        let tls_profiles = [TlsProfile::Chrome126, TlsProfile::Firefox128, TlsProfile::Safari17];
+        let tls_profiles = [
+            TlsProfile::Chrome126,
+            TlsProfile::Firefox128,
+            TlsProfile::Safari17,
+        ];
         let idx = self.current_idx.fetch_add(1, Ordering::Relaxed);
         let tls = &tls_profiles[idx % tls_profiles.len()];
         let base_profile = &self.profiles[idx % self.profiles.len()];
@@ -200,11 +210,14 @@ impl WafEvasionEngine {
         };
 
         let payload = original.body.as_deref().unwrap_or("");
-        
-        if let Some(mutation) = ai_engine.get_mutation_or_enqueue(payload, finding, target).await {
+
+        if let Some(mutation) = ai_engine
+            .get_mutation_or_enqueue(payload, finding, target)
+            .await
+        {
             let idx = self.current_idx.fetch_add(1, Ordering::Relaxed);
             let base = &self.profiles[idx % self.profiles.len()];
-            
+
             let mut fingerprint_data = (**base).clone();
             fingerprint_data.request_delay_ms = rand::thread_rng().gen_range(1000..3000);
             let fingerprint = Arc::new(fingerprint_data);

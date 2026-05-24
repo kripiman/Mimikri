@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category, PLUGIN_JAELES};
+use crate::models::{Category, Finding, Severity, TargetHost, PLUGIN_JAELES};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
-use tokio::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
+use tracing::info;
 
 pub struct JaelesScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for JaelesScanner {
 impl JaelesScanner {
     pub fn new() -> Self {
         let path = detect_tool("jaeles");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -61,23 +59,31 @@ impl ScannerPlugin for JaelesScanner {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         // V13 HARDENING: Mandatory DNS Pinning (ResolvedIP) for all network-bound plugins.
-        let pinned_ip = target.pinned_addr()
-            .context("DNS Pinning Violation: Jaeles requires a resolved and pinned IP to prevent Rebinding.")?;
-        
-        info!("JaelesScanner: scanning {} (Pinned: {})", target.host, pinned_ip);
+        let pinned_ip = target.pinned_addr().context(
+            "DNS Pinning Violation: Jaeles requires a resolved and pinned IP to prevent Rebinding.",
+        )?;
+
+        info!(
+            "JaelesScanner: scanning {} (Pinned: {})",
+            target.host, pinned_ip
+        );
 
         let url = format!("http://{}", pinned_ip);
         let host_header = format!("Host: {}", target.host);
 
         // Jaeles output is usually to stdout or a file. We'll use a temp file.
-        let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file for Jaeles")?;
+        let temp_file =
+            tempfile::NamedTempFile::new().context("Failed to create temp file for Jaeles")?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
         let mut child = Command::new(&self.binary_path)
             .arg("scan")
-            .arg("-u").arg(&url)
-            .arg("-H").arg(&host_header)
-            .arg("-o").arg(&temp_path)
+            .arg("-u")
+            .arg(&url)
+            .arg("-H")
+            .arg(&host_header)
+            .arg("-o")
+            .arg(&temp_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -96,7 +102,7 @@ impl ScannerPlugin for JaelesScanner {
                         Category::Vulnerability,
                         Severity::Medium,
                         &format!("Vulnerability detected by Jaeles: {}", line),
-                        serde_json::json!({"raw": line})
+                        serde_json::json!({"raw": line}),
                     ));
                 }
             }

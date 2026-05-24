@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, error};
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{error, info};
 pub struct GoWitnessScanner {
     binary_path: String,
 }
@@ -18,9 +18,7 @@ impl Default for GoWitnessScanner {
 impl GoWitnessScanner {
     pub fn new() -> Self {
         let path = detect_tool("gowitness");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 #[async_trait]
@@ -28,7 +26,7 @@ impl ScannerPlugin for GoWitnessScanner {
     fn name(&self) -> &'static str {
         "gowitness"
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -43,7 +41,9 @@ impl ScannerPlugin for GoWitnessScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -52,7 +52,10 @@ impl ScannerPlugin for GoWitnessScanner {
         Ok(crate::utils::check_tool_availability("gowitness").await)
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("GoWitnessScanner: starting visual discovery for {}", target.host);
+        info!(
+            "GoWitnessScanner: starting visual discovery for {}",
+            target.host
+        );
         // gowitness scan single host
         // We use --screenshot-path to define where to save it, but gowitness usually uses a db.
         // For simplicity, we'll try to capture a single screenshot if possible or just run a scan.
@@ -68,7 +71,10 @@ impl ScannerPlugin for GoWitnessScanner {
         let mut findings = Vec::new();
         match child {
             Ok(c) => {
-                let output = c.wait_with_output().await.context("Failed to wait for gowitness")?;
+                let output = c
+                    .wait_with_output()
+                    .await
+                    .context("Failed to wait for gowitness")?;
                 if output.status.success() {
                     findings.push(Finding::new(
                         "GOWITNESS-VISUAL-DISCOVERY",

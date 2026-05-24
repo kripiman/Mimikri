@@ -1,8 +1,8 @@
-use tracing::{warn};
 use super::findings::Finding;
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::warn;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScanMetadata {
@@ -103,10 +103,13 @@ impl TargetHost {
         }
     }
 
-    /// Force retrieval of a pinned IP or error out. 
+    /// Force retrieval of a pinned IP or error out.
     /// MANDATORY for all sensitive operations (PoC, Exploits, Scanning) to prevent DNS Rebinding.
     pub fn pinned_addr(&self) -> Result<&str, anyhow::Error> {
-        debug_assert!(self.target_type != TargetType::Mobile, "pinned_addr() called on Mobile target");
+        debug_assert!(
+            self.target_type != TargetType::Mobile,
+            "pinned_addr() called on Mobile target"
+        );
         self.resolved_ip.as_deref()
             .ok_or_else(|| {
                 anyhow::anyhow!("Security Violation: Operation requires a pinned IP (resolved_ip) to prevent DNS Rebinding. Check Liveness stage.")
@@ -118,12 +121,14 @@ impl TargetHost {
     }
 
     pub fn artifact_path(&self) -> Result<&str, anyhow::Error> {
-        self.file_path.as_deref()
-            .ok_or_else(|| anyhow::anyhow!("Target has no artifact path (Mobile/static scan required file_path)"))
+        self.file_path.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("Target has no artifact path (Mobile/static scan required file_path)")
+        })
     }
 
     pub fn findings_since(&self, version: u64) -> Vec<Finding> {
-        self.findings.iter()
+        self.findings
+            .iter()
             .filter(|f| f.version > version)
             .cloned()
             .collect()
@@ -133,6 +138,3 @@ impl TargetHost {
 fn default_arc_json() -> Arc<serde_json::Value> {
     Arc::new(serde_json::json!({}))
 }
-
-
-

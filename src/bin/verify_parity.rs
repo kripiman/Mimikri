@@ -1,8 +1,8 @@
-use mimikri::models::Finding;
-use std::fs;
 use anyhow::Result;
+use mimikri::models::Finding;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use sha2::{Sha256, Digest};
+use std::fs;
 
 pub struct ParityReport {
     pub l1_passed: bool,
@@ -13,25 +13,33 @@ pub struct ParityReport {
 pub fn verify_parity(baseline_path: &str, current_path: &str) -> Result<ParityReport> {
     let baseline_raw = fs::read_to_string(baseline_path)?;
     let current_raw = fs::read_to_string(current_path)?;
-    
+
     let mut baseline: Vec<Finding> = serde_json::from_str(&baseline_raw)?;
     let mut current: Vec<Finding> = serde_json::from_str(&current_raw)?;
-    
+
     // Normalize: Ignore timestamps for comparison
     let default_time = chrono::DateTime::default();
-    for f in &mut baseline { f.core.timestamps = default_time; }
-    for f in &mut current { f.core.timestamps = default_time; }
+    for f in &mut baseline {
+        f.core.timestamps = default_time;
+    }
+    for f in &mut current {
+        f.core.timestamps = default_time;
+    }
 
     // L1: Quantitative (< 2% delta per category)
     let l1_passed = check_l1(&baseline, &current);
-    
+
     // L2: Qualitative (Identity intersection via SHA256)
     let l2_passed = check_l2(&baseline, &current);
-    
+
     // L3: Structural (Whitelist of TypeId keys - currently using extra_data keys as proxy)
     let l3_passed = check_l3(&baseline, &current);
-    
-    Ok(ParityReport { l1_passed, l2_passed, l3_passed })
+
+    Ok(ParityReport {
+        l1_passed,
+        l2_passed,
+        l3_passed,
+    })
 }
 
 fn compute_id(f: &Finding) -> String {
@@ -46,15 +54,26 @@ fn compute_id(f: &Finding) -> String {
 fn check_l1(baseline: &[Finding], current: &[Finding]) -> bool {
     let mut b_counts = HashMap::new();
     let mut c_counts = HashMap::new();
-    
-    for f in baseline { *b_counts.entry(format!("{:?}", f.core.category)).or_insert(0) += 1; }
-    for f in current { *c_counts.entry(format!("{:?}", f.core.category)).or_insert(0) += 1; }
-    
+
+    for f in baseline {
+        *b_counts
+            .entry(format!("{:?}", f.core.category))
+            .or_insert(0) += 1;
+    }
+    for f in current {
+        *c_counts
+            .entry(format!("{:?}", f.core.category))
+            .or_insert(0) += 1;
+    }
+
     for (cat, b_count) in b_counts {
         let c_count = *c_counts.get(&cat).unwrap_or(&0);
         let delta = (b_count as f32 - c_count as f32).abs();
         if delta / (b_count as f32) > 0.02 {
-            println!("L1 Fail: Category {:?} delta too high (B:{} C:{})", cat, b_count, c_count);
+            println!(
+                "L1 Fail: Category {:?} delta too high (B:{} C:{})",
+                cat, b_count, c_count
+            );
             return false;
         }
     }
@@ -64,11 +83,14 @@ fn check_l1(baseline: &[Finding], current: &[Finding]) -> bool {
 fn check_l2(baseline: &[Finding], current: &[Finding]) -> bool {
     let b_ids: HashSet<String> = baseline.iter().map(compute_id).collect();
     let c_ids: HashSet<String> = current.iter().map(compute_id).collect();
-    
+
     if b_ids != c_ids {
         let missing: Vec<_> = b_ids.difference(&c_ids).collect();
         let extra: Vec<_> = c_ids.difference(&b_ids).collect();
-        println!("L2 Fail: IDs do not match.\nMissing: {:?}\nExtra: {:?}", missing, extra);
+        println!(
+            "L2 Fail: IDs do not match.\nMissing: {:?}\nExtra: {:?}",
+            missing, extra
+        );
         return false;
     }
     true
@@ -79,14 +101,14 @@ fn check_l3(baseline: &[Finding], current: &[Finding]) -> bool {
     for (b, c) in baseline.iter().zip(current.iter()) {
         // 1. Target presence & value equality match
         match (&b.core.target, &c.core.target) {
-            (None, None) => {} // OK Phase 0 PLUGIN_ERROR
+            (None, None) => {}                     // OK Phase 0 PLUGIN_ERROR
             (Some(bt), Some(ct)) if bt == ct => {} // String value equality
             (a, b_) => {
                 println!("L3 Fail: target divergence baseline={a:?} current={b_:?}");
                 return false;
             }
         }
-        
+
         // 2. Evidence shape
         if b.evidence.primary.is_some() != c.evidence.primary.is_some() {
             println!("L3 Fail: Evidence presence mismatch for {}", b.core.title);
@@ -95,7 +117,10 @@ fn check_l3(baseline: &[Finding], current: &[Finding]) -> bool {
 
         // 3. AI Enrichment shape
         if b.enrichment.ai_analysis.is_some() != c.enrichment.ai_analysis.is_some() {
-            println!("L3 Fail: AI analysis presence mismatch for {}", b.core.title);
+            println!(
+                "L3 Fail: AI analysis presence mismatch for {}",
+                b.core.title
+            );
             return false;
         }
 
@@ -109,7 +134,10 @@ fn check_l3(baseline: &[Finding], current: &[Finding]) -> bool {
 }
 
 fn main() -> Result<()> {
-    let report = verify_parity("tests/baselines/golden_baseline.json", "target/current_scan.json")?;
+    let report = verify_parity(
+        "tests/baselines/golden_baseline.json",
+        "target/current_scan.json",
+    )?;
     if report.l1_passed && report.l2_passed && report.l3_passed {
         println!("✅ Parity Verified!");
         Ok(())

@@ -1,7 +1,7 @@
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::collections::{HashMap, HashSet};
-use anyhow::{Result, anyhow};
+use std::fmt;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -42,7 +42,7 @@ pub enum OpsecLevel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Objective {
-    pub id: String,              // OBJ-xxx
+    pub id: String, // OBJ-xxx
     pub title: String,
     pub description: String,
     pub status: ObjectiveStatus,
@@ -54,7 +54,7 @@ pub struct Objective {
     pub findings_produced: Vec<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub priority: u8,            // 1-5 (Alta a Baja)
+    pub priority: u8, // 1-5 (Alta a Baja)
     pub agent_assigned: Option<String>,
 }
 
@@ -110,13 +110,20 @@ impl OPPLAN {
 
     pub fn add_objective(&mut self, objective: Objective) -> Result<()> {
         if self.objectives.contains_key(&objective.id) {
-            return Err(anyhow!("Objective ID '{}' already exists in OPPLAN", objective.id));
+            return Err(anyhow!(
+                "Objective ID '{}' already exists in OPPLAN",
+                objective.id
+            ));
         }
-        
+
         // Verificar que las dependencias existan si el plan ya está poblado
         for dep in &objective.depends_on {
             if !self.objectives.contains_key(dep) {
-                tracing::warn!("⚠️ OPPLAN: Objective '{}' depends on non-existent ID '{}'", objective.id, dep);
+                tracing::warn!(
+                    "⚠️ OPPLAN: Objective '{}' depends on non-existent ID '{}'",
+                    objective.id,
+                    dep
+                );
             }
         }
 
@@ -132,13 +139,21 @@ impl OPPLAN {
 
         for id in self.objectives.keys() {
             if self.has_cycle_util(id, &mut visited, &mut rec_stack) {
-                return Err(anyhow!("OPPLAN Error: Cyclic dependency detected involving objective '{}'", id));
+                return Err(anyhow!(
+                    "OPPLAN Error: Cyclic dependency detected involving objective '{}'",
+                    id
+                ));
             }
         }
         Ok(())
     }
 
-    fn has_cycle_util(&self, id: &str, visited: &mut HashSet<String>, rec_stack: &mut HashSet<String>) -> bool {
+    fn has_cycle_util(
+        &self,
+        id: &str,
+        visited: &mut HashSet<String>,
+        rec_stack: &mut HashSet<String>,
+    ) -> bool {
         if rec_stack.contains(id) {
             return true;
         }
@@ -163,7 +178,8 @@ impl OPPLAN {
 
     /// Retorna los siguientes objetivos que pueden ser ejecutados (pendientes y con dependencias completadas).
     pub fn next_pending(&self) -> Vec<&Objective> {
-        self.objectives.values()
+        self.objectives
+            .values()
             .filter(|obj| obj.status == ObjectiveStatus::Pending)
             .filter(|obj| {
                 // Todas las dependencias deben estar en estado 'Completed'
@@ -198,11 +214,21 @@ mod tests {
     fn test_graph_resolution_multiple_deps() -> Result<()> {
         let mut plan = OPPLAN::new();
 
-        let obj1 = Objective::new("OBJ-001", "Scope Recon", "Identify assets", ObjectivePhase::Recon)
-            .with_status(ObjectiveStatus::Completed);
-        let obj2 = Objective::new("OBJ-002", "Service Enum", "Scan ports", ObjectivePhase::Recon)
-            .with_status(ObjectiveStatus::Completed);
-        
+        let obj1 = Objective::new(
+            "OBJ-001",
+            "Scope Recon",
+            "Identify assets",
+            ObjectivePhase::Recon,
+        )
+        .with_status(ObjectiveStatus::Completed);
+        let obj2 = Objective::new(
+            "OBJ-002",
+            "Service Enum",
+            "Scan ports",
+            ObjectivePhase::Recon,
+        )
+        .with_status(ObjectiveStatus::Completed);
+
         // OBJ-003 depende de obj1 Y obj2
         let obj3 = Objective::new("OBJ-003", "Vuln Scan", "Deep scan", ObjectivePhase::Recon)
             .add_dependency("OBJ-001")
@@ -223,14 +249,29 @@ mod tests {
     fn test_graph_blocked_deps() -> Result<()> {
         let mut plan = OPPLAN::new();
 
-        let obj1 = Objective::new("OBJ-001", "Exploit A", "Try A", ObjectivePhase::InitialAccess)
-            .with_status(ObjectiveStatus::Completed);
-        let obj2 = Objective::new("OBJ-002", "Exploit B", "Try B", ObjectivePhase::InitialAccess)
-            .with_status(ObjectiveStatus::Pending); // Todavía pendiente
-        
-        let obj3 = Objective::new("OBJ-003", "Pivot", "Lateral movement", ObjectivePhase::LateralMovement)
-            .add_dependency("OBJ-001")
-            .add_dependency("OBJ-002");
+        let obj1 = Objective::new(
+            "OBJ-001",
+            "Exploit A",
+            "Try A",
+            ObjectivePhase::InitialAccess,
+        )
+        .with_status(ObjectiveStatus::Completed);
+        let obj2 = Objective::new(
+            "OBJ-002",
+            "Exploit B",
+            "Try B",
+            ObjectivePhase::InitialAccess,
+        )
+        .with_status(ObjectiveStatus::Pending); // Todavía pendiente
+
+        let obj3 = Objective::new(
+            "OBJ-003",
+            "Pivot",
+            "Lateral movement",
+            ObjectivePhase::LateralMovement,
+        )
+        .add_dependency("OBJ-001")
+        .add_dependency("OBJ-002");
 
         plan.add_objective(obj1)?;
         plan.add_objective(obj2)?;
@@ -248,15 +289,18 @@ mod tests {
     fn test_cycle_detection() {
         let mut plan = OPPLAN::new();
 
-        let obj1 = Objective::new("OBJ-001", "A", "", ObjectivePhase::Recon)
-            .add_dependency("OBJ-002");
-        let obj2 = Objective::new("OBJ-002", "B", "", ObjectivePhase::Recon)
-            .add_dependency("OBJ-001");
+        let obj1 =
+            Objective::new("OBJ-001", "A", "", ObjectivePhase::Recon).add_dependency("OBJ-002");
+        let obj2 =
+            Objective::new("OBJ-002", "B", "", ObjectivePhase::Recon).add_dependency("OBJ-001");
 
         let _ = plan.add_objective(obj1);
         let result = plan.add_objective(obj2);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Cyclic dependency"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Cyclic dependency"));
     }
 }

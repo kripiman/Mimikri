@@ -1,14 +1,14 @@
-use crate::plugins::{DiscoveryPlugin, Capability, DiscoveryResult};
 use crate::models::TargetHost;
-use async_trait::async_trait;
+use crate::plugins::{Capability, DiscoveryPlugin, DiscoveryResult};
 use anyhow::Result;
-use tracing::{info, warn, debug};
-use reqwest::Client;
-use serde::Deserialize;
-use std::sync::Arc;
-use std::collections::HashSet;
+use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use reqwest::Client;
+use serde::Deserialize;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tracing::{debug, info, warn};
 
 /// V14.6: Identifies high-value administrative subdomains for priority auth scanning
 static ADMIN_SUBDOMAIN_RE: Lazy<Regex> = Lazy::new(|| {
@@ -40,19 +40,19 @@ impl OsintScanner {
     async fn query_crt_sh(&self, domain: &str) -> Result<HashSet<String>> {
         let url = format!("https://crt.sh/?q=%.{}&output=json", domain);
         debug!("Querying crt.sh for {}", domain);
-        
+
         // crt.sh can be slow/flaky, retry logic recommended but keeping simple for now
         let client = self.get_client("crt.sh").await?;
         let resp = client.get(&url).send().await?;
-        
+
         if !resp.status().is_success() {
-             warn!("crt.sh returned status: {}", resp.status());
-             return Ok(HashSet::new());
+            warn!("crt.sh returned status: {}", resp.status());
+            return Ok(HashSet::new());
         }
 
         let entries: Vec<CrtShEntry> = resp.json().await?;
         let mut subdomains = HashSet::new();
-        
+
         for entry in entries {
             for line in entry.name_value.split('\n') {
                 let clean = line.trim().trim_end_matches('.');
@@ -62,7 +62,7 @@ impl OsintScanner {
                 }
             }
         }
-        
+
         Ok(subdomains)
     }
 
@@ -75,15 +75,18 @@ impl OsintScanner {
             }
         };
 
-        let url = format!("https://api.shodan.io/dns/domain/{}?key={}", domain, api_key);
+        let url = format!(
+            "https://api.shodan.io/dns/domain/{}?key={}",
+            domain, api_key
+        );
         debug!("Querying Shodan for {} with key redacted", domain);
 
         let client = self.get_client("api.shodan.io").await?;
         let resp = client.get(&url).send().await?;
-        
+
         if !resp.status().is_success() {
-             warn!("Shodan returned status: {}", resp.status());
-             return Ok(HashSet::new());
+            warn!("Shodan returned status: {}", resp.status());
+            return Ok(HashSet::new());
         }
 
         #[derive(Deserialize)]
@@ -100,7 +103,7 @@ impl OsintScanner {
                 subdomains.insert(clean);
             }
         }
-        
+
         Ok(subdomains)
     }
 }
@@ -111,7 +114,7 @@ impl DiscoveryPlugin for OsintScanner {
         "OsintScanner"
     }
 
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Passive subdomain discovery using crt.sh and Shodan APIs.".to_string(),
@@ -126,7 +129,9 @@ impl DiscoveryPlugin for OsintScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -136,22 +141,21 @@ impl DiscoveryPlugin for OsintScanner {
         Ok(crate::utils::check_tool_availability("osint").await)
     }
 
-
     async fn discover(&self, target: &TargetHost) -> Result<Vec<DiscoveryResult>> {
         info!("OsintScanner: enumerating subdomains for {}", target.host);
-        
+
         let (crt_res, shodan_res) = tokio::join!(
             self.query_crt_sh(&target.host),
             self.query_shodan(&target.host)
         );
 
         let mut subdomains = HashSet::new();
-        
+
         match crt_res {
             Ok(s) => subdomains.extend(s),
             Err(e) => warn!("Failed to query crt.sh: {}", e),
         }
-        
+
         match shodan_res {
             Ok(s) => subdomains.extend(s),
             Err(e) => warn!("Failed to query Shodan: {}", e),
@@ -162,7 +166,11 @@ impl DiscoveryPlugin for OsintScanner {
             return Ok(Vec::new());
         }
 
-        info!("OsintScanner: Found {} potential subdomains for {}", subdomains.len(), target.host);
+        info!(
+            "OsintScanner: Found {} potential subdomains for {}",
+            subdomains.len(),
+            target.host
+        );
         Ok(subdomains.into_iter().map(|s| {
             let is_hvt = ADMIN_SUBDOMAIN_RE.is_match(&s);
             DiscoveryResult {

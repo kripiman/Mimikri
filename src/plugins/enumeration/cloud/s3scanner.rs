@@ -1,17 +1,17 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, GlobalConfig};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use crate::models::constants::{PLUGIN_S3SCANNER, FINDING_S3_BUCKET};
-use crate::utils::tool_detection::detect_tool_system;
 use crate::core::capability_layer::ScanLayer;
+use crate::models::constants::{FINDING_S3_BUCKET, PLUGIN_S3SCANNER};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, GlobalConfig, PluginMetadata, RiskLevel, ScannerPlugin};
+use crate::utils::tool_detection::detect_tool_system;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
-use std::process::Stdio;
-use std::time::Duration;
-use tokio::time::timeout;
 use std::collections::HashSet;
 use std::io::Write;
+use std::process::Stdio;
+use std::time::Duration;
 use tempfile::NamedTempFile;
+use tokio::time::timeout;
+use tracing::{info, warn};
 
 pub struct S3BucketScanner {
     binary_path: Option<String>,
@@ -20,12 +20,14 @@ pub struct S3BucketScanner {
 
 impl S3BucketScanner {
     pub fn new<M: crate::utils::executor::ExecutorMode>(config: &GlobalConfig<M>) -> Self {
-        let binary_path = config.s3scanner_path.clone().or_else(|| {
-            match detect_tool_system("s3scanner") {
-                Ok(Some(path)) => Some(path.to_string_lossy().into_owned()),
-                _ => None,
-            }
-        });
+        let binary_path =
+            config
+                .s3scanner_path
+                .clone()
+                .or_else(|| match detect_tool_system("s3scanner") {
+                    Ok(Some(path)) => Some(path.to_string_lossy().into_owned()),
+                    _ => None,
+                });
 
         Self {
             binary_path,
@@ -37,16 +39,25 @@ impl S3BucketScanner {
     fn generate_mutations(&self, raw_host: &str) -> Vec<String> {
         let host = raw_host.to_lowercase();
         let safe_host = host.replace('.', "-");
-        
+
         // STRIKE-TIME FIX: Smart stem extraction using PSL (addr crate)
         let stem = if let Ok(domain) = addr::parse_domain_name(&host) {
-            domain.root().and_then(|r| r.split('.').next()).unwrap_or(host.split('.').rev().nth(1).unwrap_or(host.split('.').next().unwrap_or(&host)))
+            domain.root().and_then(|r| r.split('.').next()).unwrap_or(
+                host.split('.')
+                    .rev()
+                    .nth(1)
+                    .unwrap_or(host.split('.').next().unwrap_or(&host)),
+            )
         } else {
-            host.split('.').rev().nth(1).unwrap_or(host.split('.').next().unwrap_or(&host))
-        }.to_string();
+            host.split('.')
+                .rev()
+                .nth(1)
+                .unwrap_or(host.split('.').next().unwrap_or(&host))
+        }
+        .to_string();
 
         let mut templates = HashSet::new();
-        
+
         // 12 canonical templates as defined in Rev 3
         templates.insert(safe_host.clone());
         templates.insert(format!("{}-backup", safe_host));
@@ -54,7 +65,7 @@ impl S3BucketScanner {
         templates.insert(format!("{}-assets", safe_host));
         templates.insert(format!("{}-data", safe_host));
         templates.insert(format!("{}-dev", safe_host));
-        
+
         templates.insert(stem.to_string());
         templates.insert(format!("{}-backup", stem));
         templates.insert(format!("{}backup", stem));
@@ -69,14 +80,26 @@ impl S3BucketScanner {
     /// Map S3Scanner permissions to Mimikri Severity levels (JSON v3 compliant)
     /// 0: Allowed (Public), 1: Denied (Private), 2: Error/Unknown
     fn map_severity(&self, bucket_obj: &serde_json::Value) -> Severity {
-        let is_public_write = bucket_obj.get("perm_all_users_write").and_then(|v| v.as_u64()).map(|v| v == 0).unwrap_or(false) ||
-                              bucket_obj.get("perm_all_users_full_control").and_then(|v| v.as_u64()).map(|v| v == 0).unwrap_or(false);
-        
+        let is_public_write = bucket_obj
+            .get("perm_all_users_write")
+            .and_then(|v| v.as_u64())
+            .map(|v| v == 0)
+            .unwrap_or(false)
+            || bucket_obj
+                .get("perm_all_users_full_control")
+                .and_then(|v| v.as_u64())
+                .map(|v| v == 0)
+                .unwrap_or(false);
+
         if is_public_write {
             return Severity::Critical;
         }
 
-        let is_public_read = bucket_obj.get("perm_all_users_read").and_then(|v| v.as_u64()).map(|v| v == 0).unwrap_or(false);
+        let is_public_read = bucket_obj
+            .get("perm_all_users_read")
+            .and_then(|v| v.as_u64())
+            .map(|v| v == 0)
+            .unwrap_or(false);
         if is_public_read {
             return Severity::High;
         }
@@ -85,7 +108,9 @@ impl S3BucketScanner {
     }
 
     fn is_private_or_local(host: &str) -> bool {
-        if host == "localhost" { return true; }
+        if host == "localhost" {
+            return true;
+        }
         if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
             let octets = ip.octets();
             return ip.is_loopback()
@@ -106,7 +131,9 @@ impl ScannerPlugin for S3BucketScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "S3BucketScanner: Audits S3 buckets for public access and misconfigurations.".to_string(),
+            description:
+                "S3BucketScanner: Audits S3 buckets for public access and misconfigurations."
+                    .to_string(),
             target_type: crate::models::TargetType::Cloud,
             risk_level: RiskLevel::Low,
             layer: ScanLayer::Discovery,
@@ -140,9 +167,14 @@ impl ScannerPlugin for S3BucketScanner {
             return Ok(vec![]);
         }
 
-        info!("S3BucketScanner: initiating cloud audit for {}", target.host);
+        info!(
+            "S3BucketScanner: initiating cloud audit for {}",
+            target.host
+        );
 
-        let bin_path = self.binary_path.as_ref()
+        let bin_path = self
+            .binary_path
+            .as_ref()
             .context("S3BucketScanner invariant violated: binary_path is None during scan")?;
 
         // Mode A/B Trigger Logic
@@ -151,8 +183,11 @@ impl ScannerPlugin for S3BucketScanner {
                 info!("S3BucketScanner: Mode A (External Wordlist)");
                 (None, path.clone())
             } else {
-                info!("S3BucketScanner: Mode B (Mutation Generator) - Reason: Wordlist path invalid");
-                let mut tmp = NamedTempFile::new().context("Failed to create temp wordlist for S3Scanner")?;
+                info!(
+                    "S3BucketScanner: Mode B (Mutation Generator) - Reason: Wordlist path invalid"
+                );
+                let mut tmp =
+                    NamedTempFile::new().context("Failed to create temp wordlist for S3Scanner")?;
                 let mutations = self.generate_mutations(&target.host);
                 writeln!(tmp, "{}", mutations.join("\n"))?;
                 let path = tmp.path().to_string_lossy().to_string();
@@ -160,7 +195,8 @@ impl ScannerPlugin for S3BucketScanner {
             }
         } else {
             info!("S3BucketScanner: Mode B (Mutation Generator) - Reason: No wordlist configured");
-            let mut tmp = NamedTempFile::new().context("Failed to create temp wordlist for S3Scanner")?;
+            let mut tmp =
+                NamedTempFile::new().context("Failed to create temp wordlist for S3Scanner")?;
             let mutations = self.generate_mutations(&target.host);
             writeln!(tmp, "{}", mutations.join("\n"))?;
             let path = tmp.path().to_string_lossy().to_string();
@@ -168,10 +204,13 @@ impl ScannerPlugin for S3BucketScanner {
         };
 
         let mut cmd = tokio::process::Command::new(bin_path);
-        cmd.arg("-bucket-file").arg(&final_wordlist_path)
+        cmd.arg("-bucket-file")
+            .arg(&final_wordlist_path)
             .arg("-json")
-            .arg("-provider").arg("aws")
-            .arg("-threads").arg("4") // STRIKE-TIME FIX: OPSEC explicit concurrency
+            .arg("-provider")
+            .arg("aws")
+            .arg("-threads")
+            .arg("4") // STRIKE-TIME FIX: OPSEC explicit concurrency
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -180,7 +219,8 @@ impl ScannerPlugin for S3BucketScanner {
         // Env-Leak Guard: Do not log the cmd object directly
         info!("S3BucketScanner: spawning binary at {}", bin_path);
 
-        let output_result = timeout(Duration::from_secs(600), cmd.spawn()?.wait_with_output()).await;
+        let output_result =
+            timeout(Duration::from_secs(600), cmd.spawn()?.wait_with_output()).await;
 
         // Ensure temp file lives until process completes
         drop(temp_file);
@@ -188,7 +228,10 @@ impl ScannerPlugin for S3BucketScanner {
         let output = match output_result {
             Ok(Ok(o)) => o,
             Ok(Err(e)) => {
-                warn!("S3BucketScanner: execution error for {}: {}", target.host, e);
+                warn!(
+                    "S3BucketScanner: execution error for {}: {}",
+                    target.host, e
+                );
                 return Ok(vec![]);
             }
             Err(_) => {
@@ -209,21 +252,27 @@ impl ScannerPlugin for S3BucketScanner {
         let mut findings = Vec::new();
 
         for line in stdout.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
 
             // NDJSON Parse Strategy: Verified keys for sa7mon v3
             match serde_json::from_str::<serde_json::Value>(line) {
                 Ok(entry) => {
                     if let Some(bucket_obj) = entry.get("bucket") {
-                        let name = bucket_obj.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let name = bucket_obj
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
                         // exists can be int (0: exists, 1: not found, 2: error) or boolean in some versions
-                        let exists = bucket_obj.get("exists").and_then(|v| {
-                            v.as_bool().or_else(|| v.as_u64().map(|n| n == 0))
-                        }).unwrap_or(false);
+                        let exists = bucket_obj
+                            .get("exists")
+                            .and_then(|v| v.as_bool().or_else(|| v.as_u64().map(|n| n == 0)))
+                            .unwrap_or(false);
 
                         if exists {
                             let severity = self.map_severity(bucket_obj);
-                            
+
                             findings.push(Finding::new(
                                 FINDING_S3_BUCKET,
                                 Category::Misconfiguration,
@@ -239,12 +288,19 @@ impl ScannerPlugin for S3BucketScanner {
                     }
                 }
                 Err(e) => {
-                    warn!("S3BucketScanner: malformed NDJSON line: {} | Error: {}", line, e);
+                    warn!(
+                        "S3BucketScanner: malformed NDJSON line: {} | Error: {}",
+                        line, e
+                    );
                 }
             }
         }
 
-        info!("S3BucketScanner: found {} S3 buckets for {}", findings.len(), target.host);
+        info!(
+            "S3BucketScanner: found {} S3 buckets for {}",
+            findings.len(),
+            target.host
+        );
         Ok(findings)
     }
 }
@@ -255,7 +311,10 @@ mod tests {
 
     #[test]
     fn test_mutation_generator() {
-        let scanner = S3BucketScanner { binary_path: None, wordlist_path: None };
+        let scanner = S3BucketScanner {
+            binary_path: None,
+            wordlist_path: None,
+        };
         let mutations = scanner.generate_mutations("Example.COM");
         assert!(mutations.contains(&"example-com".to_string()));
         assert!(mutations.contains(&"example-backup".to_string()));
@@ -272,15 +331,22 @@ mod tests {
 
     #[test]
     fn test_severity_mapping() {
-        let scanner = S3BucketScanner { binary_path: None, wordlist_path: None };
-        
+        let scanner = S3BucketScanner {
+            binary_path: None,
+            wordlist_path: None,
+        };
+
         let critical = scanner.map_severity(&serde_json::json!({"perm_all_users_write": 0}));
         assert_eq!(critical, Severity::Critical);
 
-        let high = scanner.map_severity(&serde_json::json!({"perm_all_users_read": 0, "perm_all_users_write": 1}));
+        let high = scanner.map_severity(
+            &serde_json::json!({"perm_all_users_read": 0, "perm_all_users_write": 1}),
+        );
         assert_eq!(high, Severity::High);
 
-        let medium = scanner.map_severity(&serde_json::json!({"perm_all_users_read": 1, "perm_all_users_write": 1}));
+        let medium = scanner.map_severity(
+            &serde_json::json!({"perm_all_users_read": 1, "perm_all_users_write": 1}),
+        );
         assert_eq!(medium, Severity::Medium);
     }
 }

@@ -1,12 +1,14 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category, PLUGIN_TSUNAMI, FINDING_TSUNAMI_VULN};
+use crate::models::{
+    Category, Finding, Severity, TargetHost, FINDING_TSUNAMI_VULN, PLUGIN_TSUNAMI,
+};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
+use serde::Deserialize;
 use std::process::Stdio;
 use tokio::process::Command;
-use serde::Deserialize;
+use tracing::{info, warn};
 
 #[derive(Debug, Deserialize)]
 struct TsunamiReport {
@@ -43,9 +45,7 @@ impl Default for TsunamiScanner {
 impl TsunamiScanner {
     pub fn new() -> Self {
         let path = detect_tool("tsunami");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -55,7 +55,6 @@ impl ScannerPlugin for TsunamiScanner {
         PLUGIN_TSUNAMI
     }
 
-    
     fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
@@ -73,22 +72,29 @@ impl ScannerPlugin for TsunamiScanner {
         Ok(crate::utils::check_tool_availability("tsunami").await)
     }
 
-
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("TsunamiScanner: launching network scan against {}", target.host);
+        info!(
+            "TsunamiScanner: launching network scan against {}",
+            target.host
+        );
 
-        let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file for Tsunami")?;
+        let temp_file =
+            tempfile::NamedTempFile::new().context("Failed to create temp file for Tsunami")?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
         let mut cmd = Command::new(&self.binary_path);
         cmd.arg(format!("--ip-v4-target={}", target.host))
-           .arg("--scan-results-local-output-format=JSON")
-           .arg(format!("--scan-results-local-output-path={}", temp_path))
-           .stdin(Stdio::null())
-           .stdout(Stdio::null())
-           .stderr(Stdio::null());
+            .arg("--scan-results-local-output-format=JSON")
+            .arg(format!("--scan-results-local-output-path={}", temp_path))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
 
-        let status = cmd.spawn()?.wait().await.context("Failed to wait for tsunami")?;
+        let status = cmd
+            .spawn()?
+            .wait()
+            .await
+            .context("Failed to wait for tsunami")?;
 
         let mut findings = Vec::new();
 
@@ -111,13 +117,17 @@ impl ScannerPlugin for TsunamiScanner {
                             serde_json::json!({
                                 "description": f.vulnerability.description,
                                 "raw_severity": f.vulnerability.severity
-                            })
+                            }),
                         ));
                     }
                 }
             }
         } else {
-            warn!("Tsunami failed on {} with status {:?}", target.host, status.code());
+            warn!(
+                "Tsunami failed on {} with status {:?}",
+                target.host,
+                status.code()
+            );
         }
 
         Ok(findings)

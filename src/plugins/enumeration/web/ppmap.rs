@@ -1,13 +1,13 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category};
 use crate::core::capability_layer::ScanLayer;
-use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
-use anyhow::Result;
-use tracing::{info, warn};
-use tokio::process::Command;
-use std::process::Stdio;
 use crate::models::constants::*;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
+use crate::utils::tool_detection::detect_tool;
+use anyhow::Result;
+use async_trait::async_trait;
+use std::process::Stdio;
+use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct PpmapScanner {
     binary_path: String,
@@ -22,9 +22,7 @@ impl Default for PpmapScanner {
 impl PpmapScanner {
     pub fn new() -> Self {
         let path = detect_tool("ppmap");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -37,7 +35,9 @@ impl ScannerPlugin for PpmapScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "Scanner for Prototype Pollution vulnerabilities (Client-side & Server-side).".to_string(),
+            description:
+                "Scanner for Prototype Pollution vulnerabilities (Client-side & Server-side)."
+                    .to_string(),
             target_type: TargetType::Web,
             risk_level: RiskLevel::Medium,
             layer: ScanLayer::Scanning,
@@ -49,7 +49,9 @@ impl ScannerPlugin for PpmapScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("webapp".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -62,17 +64,17 @@ impl ScannerPlugin for PpmapScanner {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("PpmapScanner: scanning {}", target.host);
-        
+
         if !self.check_dependencies().await.unwrap_or(false) {
             warn!("PpmapScanner: ppmap binary not found. Skipping.");
             return Ok(Vec::new());
         }
 
         let mut findings = Vec::new();
-        
+
         // 1. Gather URLs to test
         let mut urls_to_test = std::collections::HashSet::new();
-        
+
         // Add host itself
         let base_url = if target.host.starts_with("http") {
             target.host.clone()
@@ -82,21 +84,25 @@ impl ScannerPlugin for PpmapScanner {
         urls_to_test.insert(base_url);
 
         for f in target.findings.iter() {
-             if let Some(ev) = &f.evidence.primary {
-                 for key in ["urls", "discovered_endpoints", "url", "uri", "endpoint"] {
+            if let Some(ev) = &f.evidence.primary {
+                for key in ["urls", "discovered_endpoints", "url", "uri", "endpoint"] {
                     if let Some(val) = ev.data.get(key) {
                         if let Some(s) = val.as_str() {
-                            if s.starts_with("http") { urls_to_test.insert(s.to_string()); }
+                            if s.starts_with("http") {
+                                urls_to_test.insert(s.to_string());
+                            }
                         } else if let Some(arr) = val.as_array() {
                             for item in arr {
                                 if let Some(s) = item.as_str() {
-                                    if s.starts_with("http") { urls_to_test.insert(s.to_string()); }
+                                    if s.starts_with("http") {
+                                        urls_to_test.insert(s.to_string());
+                                    }
                                 }
                             }
                         }
                     }
-                 }
-             }
+                }
+            }
         }
 
         // 2. Prioritize and limit URLs (cap at 50 to avoid pipeline stall)
@@ -104,7 +110,11 @@ impl ScannerPlugin for PpmapScanner {
         sorted_urls.sort_by_key(|u| {
             // Prioritize JS files and URLs with parameters
             let lower = u.to_lowercase();
-            if lower.ends_with(".js") || lower.contains(".js?") || lower.contains("?") { 0 } else { 1 }
+            if lower.ends_with(".js") || lower.contains(".js?") || lower.contains("?") {
+                0
+            } else {
+                1
+            }
         });
 
         for url in sorted_urls.into_iter().take(50) {
@@ -118,15 +128,16 @@ impl ScannerPlugin for PpmapScanner {
                     .stdin(Stdio::null())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
-                    .output()
-            ).await;
+                    .output(),
+            )
+            .await;
 
             match output_res {
                 Ok(Ok(output)) => {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     // ppmap success indicator: usually mentions "VULNERABLE" or shows the payload
                     if stdout.contains("VULNERABLE") || stdout.contains("constructor.prototype") {
-                         findings.push(Finding::new(
+                        findings.push(Finding::new(
                             FINDING_PROTOTYPE_POLLUTION,
                             Category::Vulnerability,
                             Severity::High,
@@ -137,7 +148,7 @@ impl ScannerPlugin for PpmapScanner {
                             })
                         ).with_tactical_path("Verify if this can be chained to XSS or bypass filters. Sanitize input to prevent prototype poisoning. Check for server-side pollution if this is a Node.js target."));
                     }
-                },
+                }
                 Ok(Err(e)) => warn!("PpmapScanner error for {}: {}", url, e),
                 Err(_) => warn!("PpmapScanner timeout for {}", url),
             }

@@ -1,14 +1,14 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category, constants::*};
+use crate::models::{constants::*, Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static EXECUTED: AtomicBool = AtomicBool::new(false);
-use crate::utils::{detect_tool, check_tool_availability};
+use crate::utils::{check_tool_availability, detect_tool};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct AzureHoundScanner {
     binary_path: String,
@@ -23,9 +23,7 @@ impl Default for AzureHoundScanner {
 impl AzureHoundScanner {
     pub fn new() -> Self {
         let path = detect_tool("azurehound");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 
     fn get_creds(&self) -> (Option<String>, Option<String>, Option<String>) {
@@ -46,7 +44,9 @@ impl ScannerPlugin for AzureHoundScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "AzureHound: Azure AD / Entra ID attack surface mapping (BloodHound for Cloud).".to_string(),
+            description:
+                "AzureHound: Azure AD / Entra ID attack surface mapping (BloodHound for Cloud)."
+                    .to_string(),
             target_type: TargetType::Host,
             risk_level: RiskLevel::High,
             layer: crate::core::capability_layer::ScanLayer::PostExploitation,
@@ -89,26 +89,35 @@ impl ScannerPlugin for AzureHoundScanner {
             return Ok(Vec::new());
         }
 
-        info!("AzureHound: Starting Azure AD collection for tenant {}", tenant_id);
+        info!(
+            "AzureHound: Starting Azure AD collection for tenant {}",
+            tenant_id
+        );
 
-        let output = tokio::time::timeout(std::time::Duration::from_secs(600), Command::new(&self.binary_path)
-            .arg("list")
-            .arg("--tenant-id").arg(&tenant_id)
-            .arg("--client-id").arg(&client_id)
-            .arg("--client-secret").arg(&client_secret)
-            .arg("--json")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output())
-            .await
-            .context("AzureHound execution timed out")?
-            .context("Failed to run azurehound")?;
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(600),
+            Command::new(&self.binary_path)
+                .arg("list")
+                .arg("--tenant-id")
+                .arg(&tenant_id)
+                .arg("--client-id")
+                .arg(&client_id)
+                .arg("--client-secret")
+                .arg(&client_secret)
+                .arg("--json")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output(),
+        )
+        .await
+        .context("AzureHound execution timed out")?
+        .context("Failed to run azurehound")?;
 
         let mut findings = Vec::new();
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            
+
             // [M-2] Robust JSON parsing for high-value roles
             let mut high_priv = false;
             if let Ok(json_output) = serde_json::from_str::<serde_json::Value>(&stdout) {
@@ -116,14 +125,18 @@ impl ScannerPlugin for AzureHoundScanner {
                     for node in nodes {
                         if let Some(props) = node.get("Properties") {
                             let name = props.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                            if name.contains("Global Administrator") || name.contains("Privileged Role Administrator") {
+                            if name.contains("Global Administrator")
+                                || name.contains("Privileged Role Administrator")
+                            {
                                 high_priv = true;
                                 break;
                             }
                         }
                     }
                 }
-            } else if stdout.contains("Global Administrator") || stdout.contains("Privileged Role Administrator") {
+            } else if stdout.contains("Global Administrator")
+                || stdout.contains("Privileged Role Administrator")
+            {
                 // Fallback to string matching if JSON parsing fails for some reason
                 high_priv = true;
             }
@@ -140,14 +153,14 @@ impl ScannerPlugin for AzureHoundScanner {
                     })
                 ).with_tactical_path("Analyze the attack path in BloodHound to identify potential privilege escalation or lateral movement opportunities in Entra ID."));
             }
-            
+
             // [H-3] Also emit a general discovery finding using constant
             findings.push(Finding::new(
                 FINDING_AZURE_RECON_COMPLETE,
                 Category::Recon,
                 Severity::Info,
                 &format!("AzureHound: Completed collection for tenant {}", tenant_id),
-                serde_json::json!({ "tenant_id": tenant_id, "output_size": stdout.len() })
+                serde_json::json!({ "tenant_id": tenant_id, "output_size": stdout.len() }),
             ));
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);

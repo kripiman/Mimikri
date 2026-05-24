@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::info;
 pub struct CloudBruteScanner {
     binary_path: String,
 }
@@ -18,9 +18,7 @@ impl Default for CloudBruteScanner {
 impl CloudBruteScanner {
     pub fn new() -> Self {
         let path = detect_tool("cloudbrute");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 #[async_trait]
@@ -28,7 +26,7 @@ impl ScannerPlugin for CloudBruteScanner {
     fn name(&self) -> &'static str {
         "cloudbrute"
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -43,7 +41,9 @@ impl ScannerPlugin for CloudBruteScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -52,7 +52,10 @@ impl ScannerPlugin for CloudBruteScanner {
         Ok(crate::utils::check_tool_availability("cloudbrute").await)
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("CloudBruteScanner: scanning for cloud assets for {}", target.host);
+        info!(
+            "CloudBruteScanner: scanning for cloud assets for {}",
+            target.host
+        );
         // cloudbrute execution
         // -d: domain
         // -k: keyword (usually domain without TLD)
@@ -68,11 +71,16 @@ impl ScannerPlugin for CloudBruteScanner {
             .stderr(Stdio::null())
             .spawn()
             .context("Failed to spawn cloudbrute")?;
-        let output = child.wait_with_output().await.context("Failed to wait for cloudbrute")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed to wait for cloudbrute")?;
         let mut findings = Vec::new();
         let content = String::from_utf8_lossy(&output.stdout);
         for line in content.lines() {
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             findings.push(Finding::new(
                 "CLOUDBRUTE-ASSET-DISCOVERY",
                 Category::Recon,

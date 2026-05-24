@@ -1,11 +1,13 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType, GlobalConfig};
-use crate::models::{TargetHost, Finding, Category, Severity, constants::*};
-use crate::utils::tool_detection::detect_tool;
+use crate::models::{constants::*, Category, Finding, Severity, TargetHost};
+use crate::plugins::{
+    Capability, GlobalConfig, PluginMetadata, RiskLevel, ScannerPlugin, TargetType,
+};
 use crate::utils::executor::ExecutorMode;
-use async_trait::async_trait;
+use crate::utils::tool_detection::detect_tool;
 use anyhow::Result;
-use tracing::info;
+use async_trait::async_trait;
 use std::process::Stdio;
+use tracing::info;
 
 pub struct ClairvoyanceScanner {
     binary_path: String,
@@ -54,15 +56,20 @@ impl ScannerPlugin for ClairvoyanceScanner {
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         let addr = target.ip.as_deref().unwrap_or(&target.host);
         // Usually clairvoyance needs a URL, let's assume http/https if not specified
-        let url = if addr.starts_with("http") { addr.to_string() } else { format!("http://{}", addr) };
+        let url = if addr.starts_with("http") {
+            addr.to_string()
+        } else {
+            format!("http://{}", addr)
+        };
 
-        info!("ClairvoyanceScanner: launching GraphQL reconstruction for {}", url);
+        info!(
+            "ClairvoyanceScanner: launching GraphQL reconstruction for {}",
+            url
+        );
 
         let mut cmd = tokio::process::Command::new(&self.binary_path);
-        cmd.arg(&url)
-           .stdout(Stdio::piped())
-           .stderr(Stdio::null());
-        
+        cmd.arg(&url).stdout(Stdio::piped()).stderr(Stdio::null());
+
         if let Some(wp) = &self.wordlist_path {
             cmd.arg("-w").arg(wp);
         }
@@ -74,16 +81,14 @@ impl ScannerPlugin for ClairvoyanceScanner {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.contains("type Query") || stdout.contains("type Mutation") {
-             return Ok(vec![
-                Finding::builder(
-                    FINDING_GRAPHQL_SUGGESTIONS,
-                    Category::Vulnerability,
-                    Severity::High,
-                    &format!("GraphQL schema successfully reconstructed for {}", url)
-                )
-                .with_evidence(serde_json::json!({"schema": &stdout}))
-                .build()
-            ]);
+            return Ok(vec![Finding::builder(
+                FINDING_GRAPHQL_SUGGESTIONS,
+                Category::Vulnerability,
+                Severity::High,
+                &format!("GraphQL schema successfully reconstructed for {}", url),
+            )
+            .with_evidence(serde_json::json!({"schema": &stdout}))
+            .build()]);
         }
 
         Ok(Vec::new())

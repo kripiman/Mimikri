@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
 use serde::Deserialize;
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
+use tracing::{info, warn};
 
 #[derive(Debug, Deserialize)]
 struct NucleiResult {
@@ -32,7 +32,10 @@ pub struct NucleiScanner<M: ExecutorMode> {
     auto_update: bool,
 }
 
-impl<M: ExecutorMode> NucleiScanner<M> where M: Clone {
+impl<M: ExecutorMode> NucleiScanner<M>
+where
+    M: Clone,
+{
     pub fn new(config: crate::plugins::GlobalConfig<M>) -> Self {
         let path = detect_tool("nuclei");
         Self {
@@ -52,7 +55,7 @@ impl<M: ExecutorMode> ScannerPlugin for NucleiScanner<M> {
         crate::models::PLUGIN_NUCLEI
     }
 
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Template-based vulnerability scanning using Nuclei. Highly effective for detecting misconfigurations and known CVEs.".to_string(),
@@ -78,45 +81,56 @@ impl<M: ExecutorMode> ScannerPlugin for NucleiScanner<M> {
         if available {
             // V14.2: Auto-update templates if enabled
             // We use a simple atomic or check a global state to avoid multiple updates in the same run
-            static UPDATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-            
+            static UPDATED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+
             // Check if auto-update is enabled in the config (passed via GlobalConfig if we add it there)
             // For now, we'll check a flag if we can access it, or just use a placeholder.
             // Since check_dependencies doesn't have access to the full config easily without modifying the trait,
             // we'll assume it's controlled by an environment variable for now or we update the struct.
             if self.auto_update && !UPDATED.swap(true, std::sync::atomic::Ordering::SeqCst) {
                 info!("🔄 NUCLEI: Updating templates...");
-                let _ = self.executor.execute_and_wait(&self.binary_path, vec!["-update-templates".to_string()]).await;
+                let _ = self
+                    .executor
+                    .execute_and_wait(&self.binary_path, vec!["-update-templates".to_string()])
+                    .await;
             }
         }
         Ok(available)
     }
 
-
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         // V14.2 SCOPE CHECK
         // Assuming we have access to a policy provider here or via the target
         // For now, we'll keep the DNS pinning but we've improved the underlying policy system.
-        
+
         // V13 HARDENING: Mandatory DNS Pinning (ResolvedIP) for all network-bound plugins.
-        let pinned_ip = target.pinned_addr()
-            .context("DNS Pinning Violation: Nuclei requires a resolved and pinned IP to prevent Rebinding.")?;
-        
-        info!("NucleiScanner: launching hardened scan against {} (Pinned: {})", target.host, pinned_ip);
+        let pinned_ip = target.pinned_addr().context(
+            "DNS Pinning Violation: Nuclei requires a resolved and pinned IP to prevent Rebinding.",
+        )?;
+
+        info!(
+            "NucleiScanner: launching hardened scan against {} (Pinned: {})",
+            target.host, pinned_ip
+        );
 
         let url = format!("http://{}", pinned_ip);
-        
+
         // V13 HARDENING: Set Host header to the original hostname to support vhosts on pinned IP.
         let host_header = format!("Host: {}", target.host);
 
-        let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file for Nuclei")?;
+        let temp_file =
+            tempfile::NamedTempFile::new().context("Failed to create temp file for Nuclei")?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
         let mut args = vec![
-            "-u".to_string(), url.clone(),
-            "-H".to_string(), host_header.clone(),
+            "-u".to_string(),
+            url.clone(),
+            "-H".to_string(),
+            host_header.clone(),
             "-jsonl".to_string(),
-            "-o".to_string(), temp_path.clone(),
+            "-o".to_string(),
+            temp_path.clone(),
             "-silent".to_string(),
         ];
 
@@ -148,7 +162,10 @@ impl<M: ExecutorMode> ScannerPlugin for NucleiScanner<M> {
             args.push(config_path.to_string_lossy().to_string());
         }
 
-        let output = self.executor.execute_and_wait(&self.binary_path, args).await
+        let output = self
+            .executor
+            .execute_and_wait(&self.binary_path, args)
+            .await
             .context("Failed to spawn nuclei")?;
 
         let status = output.status;
@@ -181,16 +198,23 @@ impl<M: ExecutorMode> ScannerPlugin for NucleiScanner<M> {
                         &format!("NUCLEI-{}", res.template_id.to_uppercase()),
                         Category::Vulnerability,
                         severity,
-                        &format!("{}: {}", res.info.name, res.info.description.unwrap_or_default()),
+                        &format!(
+                            "{}: {}",
+                            res.info.name,
+                            res.info.description.unwrap_or_default()
+                        ),
                         serde_json::json!({
                             "template_id": res.template_id,
                             "matched_at": res.matched_at,
-                        })
+                        }),
                     );
 
                     // V14.2 DEDUPLICATION: Check if we've seen this exact finding before
                     if crate::utils::deduplication::DeduplicationEngine::is_duplicate(&finding) {
-                        info!("♻️ V14.2 DEDUPE: Skipping duplicate Nuclei finding: {}", finding.id);
+                        info!(
+                            "♻️ V14.2 DEDUPE: Skipping duplicate Nuclei finding: {}",
+                            finding.id
+                        );
                         continue;
                     }
 

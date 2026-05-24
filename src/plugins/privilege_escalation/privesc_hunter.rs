@@ -2,10 +2,10 @@
 // 🔍 PrivEsc-Hunter: Windows Privilege Escalation Enumeration
 // ⚡ Detects common Windows privesc vectors (Rust native, no PowerShell required)
 
-use async_trait::async_trait;
-use crate::models::{TargetHost, Finding, Category, Severity, TargetType};
+use crate::models::{Category, Finding, Severity, TargetHost, TargetType};
 use crate::plugins::ScannerPlugin;
 use anyhow::Result;
+use async_trait::async_trait;
 
 pub struct PrivescHunterScanner {
     // Configurable preset security levels
@@ -41,7 +41,10 @@ impl ScannerPlugin for PrivescHunterScanner {
     }
 
     fn capabilities(&self) -> Vec<crate::plugins::Capability> {
-        vec![crate::plugins::Capability::PrivilegeEscalation, crate::plugins::Capability::InformationGathering]
+        vec![
+            crate::plugins::Capability::PrivilegeEscalation,
+            crate::plugins::Capability::InformationGathering,
+        ]
     }
 
     async fn check_dependencies(&self) -> Result<bool> {
@@ -77,7 +80,10 @@ impl ScannerPlugin for PrivescHunterScanner {
         findings.extend(self.check_service_permissions().await?);
 
         // 8. KERNEL VULNERABILITIES DETECTION
-        if matches!(self.check_level, PrivescCheckLevel::Moderate | PrivescCheckLevel::Aggressive) {
+        if matches!(
+            self.check_level,
+            PrivescCheckLevel::Moderate | PrivescCheckLevel::Aggressive
+        ) {
             findings.extend(self.check_kernel_exploits().await?);
         }
 
@@ -94,31 +100,37 @@ impl PrivescHunterScanner {
 
         // SeImpersonatePrivilege: Print Spooler abuse
         if self.has_privilege("SeImpersonatePrivilege").await? {
-            findings.push(Finding::new(
-                "PRIVESC-TOKEN-IMPERSONATE",
-                Category::Windows,
-                Severity::Critical,
-                "SeImpersonatePrivilege Enabled - vulnerable to PrintNightmare/EfsPotato",
-                serde_json::json!({
-                    "privilege": "SeImpersonatePrivilege",
-                    "abuse_path": "PrintNightmare -> SYSTEM",
-                })
-            ).with_tactical_path("Disable Print Spooler or patch CVE-2021-34527")
-             .with_mitre_attack(vec!["T1134".to_string()]));
+            findings.push(
+                Finding::new(
+                    "PRIVESC-TOKEN-IMPERSONATE",
+                    Category::Windows,
+                    Severity::Critical,
+                    "SeImpersonatePrivilege Enabled - vulnerable to PrintNightmare/EfsPotato",
+                    serde_json::json!({
+                        "privilege": "SeImpersonatePrivilege",
+                        "abuse_path": "PrintNightmare -> SYSTEM",
+                    }),
+                )
+                .with_tactical_path("Disable Print Spooler or patch CVE-2021-34527")
+                .with_mitre_attack(vec!["T1134".to_string()]),
+            );
         }
 
         // SeDebuggingPrivilege: Process token manipulation
         if self.has_privilege("SeDebuggingPrivilege").await? {
-            findings.push(Finding::new(
-                "PRIVESC-DEBUG-PRIV",
-                Category::Windows,
-                Severity::Critical,
-                "SeDebuggingPrivilege Enabled - can inject code into privileged processes",
-                serde_json::json!({
-                    "privilege": "SeDebuggingPrivilege",
-                    "abuse_path": "Inject into csrss.exe -> SYSTEM",
-                })
-            ).with_mitre_attack(vec!["T1134".to_string()]));
+            findings.push(
+                Finding::new(
+                    "PRIVESC-DEBUG-PRIV",
+                    Category::Windows,
+                    Severity::Critical,
+                    "SeDebuggingPrivilege Enabled - can inject code into privileged processes",
+                    serde_json::json!({
+                        "privilege": "SeDebuggingPrivilege",
+                        "abuse_path": "Inject into csrss.exe -> SYSTEM",
+                    }),
+                )
+                .with_mitre_attack(vec!["T1134".to_string()]),
+            );
         }
 
         Ok(findings)
@@ -136,7 +148,7 @@ impl PrivescHunterScanner {
                 serde_json::json!({
                     "service": "Spooler",
                     "vulnerable_cves": ["CVE-2021-34527", "CVE-2021-1675"]
-                })
+                }),
             ));
         }
 
@@ -146,7 +158,10 @@ impl PrivescHunterScanner {
     async fn check_unquoted_service_paths(&self) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
 
-        let suspicious_paths = vec![("VulnerableService", "C:\\Program Files\\Acme Corp\\Monitor.exe"), ];
+        let suspicious_paths = vec![(
+            "VulnerableService",
+            "C:\\Program Files\\Acme Corp\\Monitor.exe",
+        )];
 
         for (service_name, path) in suspicious_paths {
             if path.contains(' ') && !path.contains('"') {
@@ -155,7 +170,7 @@ impl PrivescHunterScanner {
                     Category::Windows,
                     Severity::High,
                     &format!("Unquoted Service Path: {}", service_name),
-                    serde_json::json!({ "service": service_name, "path": path })
+                    serde_json::json!({ "service": service_name, "path": path }),
                 ));
             }
         }
@@ -170,7 +185,7 @@ impl PrivescHunterScanner {
             Category::Windows,
             Severity::Medium,
             "DLL Hijacking Opportunity",
-            serde_json::json!({ "writable_dir": "C:\\Users\\Public\\Documents" })
+            serde_json::json!({ "writable_dir": "C:\\Users\\Public\\Documents" }),
         ));
         Ok(findings)
     }
@@ -182,7 +197,7 @@ impl PrivescHunterScanner {
             Category::Windows,
             Severity::High,
             "Writable Scheduled Task Script",
-            serde_json::json!({ "task": "BackupService", "runs_as": "SYSTEM" })
+            serde_json::json!({ "task": "BackupService", "runs_as": "SYSTEM" }),
         ));
         Ok(findings)
     }
@@ -206,7 +221,7 @@ impl PrivescHunterScanner {
             Category::Windows,
             Severity::Medium,
             "Modifiable Service",
-            serde_json::json!({ "service": "VulnerableService" })
+            serde_json::json!({ "service": "VulnerableService" }),
         ));
         Ok(findings)
     }
@@ -218,7 +233,7 @@ impl PrivescHunterScanner {
             Category::Windows,
             Severity::Critical,
             "Kernel Privilege Escalation Vulnerability",
-            serde_json::json!({ "os": "Windows 10", "suggested_exploits": ["GodPotato"] })
+            serde_json::json!({ "os": "Windows 10", "suggested_exploits": ["GodPotato"] }),
         ));
         Ok(findings)
     }
@@ -230,7 +245,7 @@ impl PrivescHunterScanner {
             Category::Windows,
             Severity::High,
             "Vulnerable Driver Detected",
-            serde_json::json!({ "driver": "vulnerable_driver.sys" })
+            serde_json::json!({ "driver": "vulnerable_driver.sys" }),
         ));
         Ok(findings)
     }

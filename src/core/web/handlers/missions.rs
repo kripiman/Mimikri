@@ -1,15 +1,11 @@
+use axum::http::StatusCode;
 /// handlers/missions.rs — Item 9 from PLAN v3 6.B mapping table.
 /// pub async fn submit_mission (L185–L198)
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    Json,
-};
-use axum::http::StatusCode;
+use axum::{extract::State, response::IntoResponse, Json};
 use std::sync::Arc;
 
-use super::super::state::{DashboardState, ValidatedOperator};
 use super::super::models::MissionRequest;
+use super::super::state::{DashboardState, ValidatedOperator};
 
 pub async fn submit_mission(
     _auth: ValidatedOperator,
@@ -22,6 +18,10 @@ pub async fn submit_mission(
             Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "Engine not ready").into_response(),
         }
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, "Mission channel not configured").into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Mission channel not configured",
+        )
+            .into_response()
     }
 }

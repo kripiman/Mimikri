@@ -1,13 +1,13 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use crate::utils::tool_detection::detect_tool;
-use crate::utils::config::Config;
 use crate::models::constants::*;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
+use crate::utils::config::Config;
+use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, error, warn};
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{error, info, warn};
 
 pub struct CosignScanner {
     binary_path: String,
@@ -22,9 +22,7 @@ impl Default for CosignScanner {
 impl CosignScanner {
     pub fn new() -> Self {
         let path = detect_tool("cosign");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -37,7 +35,8 @@ impl ScannerPlugin for CosignScanner {
     fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
-            description: "Signature and provenance verification for container images using Cosign.".to_string(),
+            description: "Signature and provenance verification for container images using Cosign."
+                .to_string(),
             target_type: crate::plugins::TargetType::Container,
             risk_level: crate::plugins::RiskLevel::Medium,
             layer: crate::core::capability_layer::ScanLayer::Scanning,
@@ -49,7 +48,9 @@ impl ScannerPlugin for CosignScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -61,7 +62,10 @@ impl ScannerPlugin for CosignScanner {
     }
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("CosignScanner: verifying signature for image: {}", target.host);
+        info!(
+            "CosignScanner: verifying signature for image: {}",
+            target.host
+        );
 
         let config = Config::from_env();
         let mut findings = Vec::new();
@@ -80,7 +84,7 @@ impl ScannerPlugin for CosignScanner {
             }
         } else {
             // Default to keyless if no key provided
-            cmd.arg("--allow-http-registry"); 
+            cmd.arg("--allow-http-registry");
             cmd.arg("--certificate-identity-regexp").arg(".*");
             cmd.arg("--certificate-oidc-issuer-regexp").arg(".*");
         }
@@ -91,13 +95,14 @@ impl ScannerPlugin for CosignScanner {
             .stderr(Stdio::piped());
 
         let timeout_duration = std::time::Duration::from_secs(SUPPLY_TIMEOUT_COSIGN_SECS);
-        let output = match tokio::time::timeout(timeout_duration, cmd.spawn()?.wait_with_output()).await {
-            Ok(res) => res.context("Failed to wait for cosign")?,
-            Err(_) => {
-                warn!("CosignScanner timed out verifying {}", target.host);
-                return Ok(findings);
-            }
-        };
+        let output =
+            match tokio::time::timeout(timeout_duration, cmd.spawn()?.wait_with_output()).await {
+                Ok(res) => res.context("Failed to wait for cosign")?,
+                Err(_) => {
+                    warn!("CosignScanner timed out verifying {}", target.host);
+                    return Ok(findings);
+                }
+            };
 
         if output.status.success() {
             findings.push(Finding::new(
@@ -109,22 +114,25 @@ impl ScannerPlugin for CosignScanner {
                     "image": target.host,
                     "status": "verified",
                     "tool": "cosign"
-                })
+                }),
             ));
         } else {
             let err = String::from_utf8_lossy(&output.stderr);
             if err.contains("no matching signatures") || err.contains("could not find signatures") {
-                findings.push(Finding::new(
-                    FINDING_UNSIGNED_IMAGE,
-                    Category::Compliance,
-                    Severity::High,
-                    &format!("UNSIGNED IMAGE DETECTED: {}", target.host),
-                    serde_json::json!({
-                        "image": target.host,
-                        "status": "unsigned",
-                        "error": err.trim()
-                    })
-                ).with_mitre_attack(vec!["T1553".to_string()]));
+                findings.push(
+                    Finding::new(
+                        FINDING_UNSIGNED_IMAGE,
+                        Category::Compliance,
+                        Severity::High,
+                        &format!("UNSIGNED IMAGE DETECTED: {}", target.host),
+                        serde_json::json!({
+                            "image": target.host,
+                            "status": "unsigned",
+                            "error": err.trim()
+                        }),
+                    )
+                    .with_mitre_attack(vec!["T1553".to_string()]),
+                );
             } else {
                 error!("CosignScanner error: {}", err);
             }

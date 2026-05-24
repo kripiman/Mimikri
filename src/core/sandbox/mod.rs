@@ -1,12 +1,11 @@
 use crate::core::blackarch::BlackArchTool;
 use crate::core::resource_manager::SysResourceManager;
 use crate::models::findings::Category;
-use anyhow::{Result, Context};
-use tokio::process::{Command, Child};
-use tracing::{info, error};
+use anyhow::{Context, Result};
+use tokio::process::{Child, Command};
+use tracing::{error, info};
 #[cfg(unix)]
 pub mod wasm;
-
 
 #[derive(Debug, PartialEq)]
 pub enum ExecutionTier {
@@ -25,7 +24,7 @@ pub struct SandboxDispatcher {
 
 impl SandboxDispatcher {
     pub fn new(res_mgr: SysResourceManager) -> Self {
-        Self { 
+        Self {
             res_mgr,
             middleware: crate::core::middleware::MiddlewareRegistry::default(),
             policy: None,
@@ -34,25 +33,37 @@ impl SandboxDispatcher {
         }
     }
 
-    pub fn with_policy(mut self, policy: std::sync::Arc<dyn crate::core::policy::PolicyProvider>) -> Self {
+    pub fn with_policy(
+        mut self,
+        policy: std::sync::Arc<dyn crate::core::policy::PolicyProvider>,
+    ) -> Self {
         self.policy = Some(policy);
         self
     }
 
-    pub fn with_proxy_manager(mut self, proxy_manager: std::sync::Arc<crate::utils::proxy::ProxyManager>) -> Self {
+    pub fn with_proxy_manager(
+        mut self,
+        proxy_manager: std::sync::Arc<crate::utils::proxy::ProxyManager>,
+    ) -> Self {
         self.proxy_manager = Some(proxy_manager);
         self
     }
 
-    pub fn with_middleware(mut self, middleware: crate::core::middleware::MiddlewareRegistry) -> Self {
+    pub fn with_middleware(
+        mut self,
+        middleware: crate::core::middleware::MiddlewareRegistry,
+    ) -> Self {
         self.middleware = middleware;
         self
     }
 
     pub fn determine_tier(&self, tool: &BlackArchTool) -> ExecutionTier {
         let category = self.map_blackarch_category(&tool.category);
-        let is_exploit = matches!(category, Category::Vulnerability | Category::Windows | Category::Linux);
-        
+        let is_exploit = matches!(
+            category,
+            Category::Vulnerability | Category::Windows | Category::Linux
+        );
+
         if self.res_mgr.supports_strict_mode() {
             // Sistemas potentes (ej. 16GB, 32GB RAM): Todo en Docker (Sandbox total).
             ExecutionTier::StrictDocker
@@ -84,7 +95,9 @@ impl SandboxDispatcher {
     fn sanitize_args(&self, args: &[String]) -> Result<Vec<String>> {
         let mut sanitized = Vec::new();
         let forbidden_prefixes = ["--exec", "--script", "-e", "--eval", "--cmd"];
-        let shell_metachars = [';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '\n', '\r'];
+        let shell_metachars = [
+            ';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '\n', '\r',
+        ];
 
         for arg in args {
             if arg.is_empty() {
@@ -93,7 +106,10 @@ impl SandboxDispatcher {
 
             // V14.4 HARDENING: Deep command safety check
             if let Some(reason) = self.check_command_safety(arg) {
-                error!("Rejecting dangerous argument (Safety Check): {} - Reason: {}", arg, reason);
+                error!(
+                    "Rejecting dangerous argument (Safety Check): {} - Reason: {}",
+                    arg, reason
+                );
                 anyhow::bail!("Dangerous command blocked: {}", reason);
             }
 
@@ -106,7 +122,10 @@ impl SandboxDispatcher {
 
             for c in shell_metachars {
                 if arg.contains(c) {
-                    error!("Rejecting dangerous argument (metacharacter '{}'): {}", c, arg);
+                    error!(
+                        "Rejecting dangerous argument (metacharacter '{}'): {}",
+                        c, arg
+                    );
                     anyhow::bail!("Shell metacharacter detected in argument: {}", arg);
                 }
             }
@@ -121,35 +140,52 @@ impl SandboxDispatcher {
     }
 
     const DANGEROUS_COMMANDS: &'static [(&'static str, &'static str)] = &[
-        ("pkill",    "Use kill <pid> instead"),
-        ("killall",  "Use kill <pid> instead"),
-        ("nsenter",  "Container namespace escape blocked"),
-        ("eval",     "Run the command directly instead"),
-        ("iptables", "Firewall modification blocked — document persistence vector instead"),
-        ("ip6tables","Firewall modification blocked"),
-        ("nft",      "Firewall modification blocked"),
-        ("rm",       "Destructive file removal blocked in sandbox"),
-        ("base64",   "Potential payload decoding blocked if used as primary command"),
+        ("pkill", "Use kill <pid> instead"),
+        ("killall", "Use kill <pid> instead"),
+        ("nsenter", "Container namespace escape blocked"),
+        ("eval", "Run the command directly instead"),
+        (
+            "iptables",
+            "Firewall modification blocked — document persistence vector instead",
+        ),
+        ("ip6tables", "Firewall modification blocked"),
+        ("nft", "Firewall modification blocked"),
+        ("rm", "Destructive file removal blocked in sandbox"),
+        (
+            "base64",
+            "Potential payload decoding blocked if used as primary command",
+        ),
     ];
 
     const DANGEROUS_SUBCOMMANDS: &'static [(&'static str, &'static str, &'static str)] = &[
-        ("docker", "exec",    "You are inside the sandbox — run commands directly"),
-        ("docker", "run",     "You are inside the sandbox — run commands directly"),
-        ("ip",     "route",   "Routing table modification blocked"),
-        ("systemctl", "stop",  "Service termination blocked"),
+        (
+            "docker",
+            "exec",
+            "You are inside the sandbox — run commands directly",
+        ),
+        (
+            "docker",
+            "run",
+            "You are inside the sandbox — run commands directly",
+        ),
+        ("ip", "route", "Routing table modification blocked"),
+        ("systemctl", "stop", "Service termination blocked"),
         ("systemctl", "disable", "Service disabling blocked"),
     ];
 
-    const DANGEROUS_TARGETS: &'static [&'static str] = &["bash", "tmux", "sh", "zsh", "python", "perl", "ruby"];
+    const DANGEROUS_TARGETS: &'static [&'static str] =
+        &["bash", "tmux", "sh", "zsh", "python", "perl", "ruby"];
 
     /// Verifica si un comando o argumento es peligroso.
     /// Retorna Some(reason) si debe bloquearse, None si es seguro.
     pub fn check_command_safety(&self, cmd: &str) -> Option<String> {
         let tokens = self.tokenize_command(cmd);
-        if tokens.is_empty() { return None; }
+        if tokens.is_empty() {
+            return None;
+        }
 
         let base_cmd = tokens[0].to_lowercase();
-        
+
         // 1. Check direct commands
         for (dc, reason) in Self::DANGEROUS_COMMANDS {
             if base_cmd == *dc {
@@ -207,7 +243,11 @@ impl SandboxDispatcher {
     }
 
     /// Ejecuta una herramienta devolviendo el objeto Child para permitir streaming de stdout/stderr.
-    pub async fn execute_tool_streamed(&self, tool: &BlackArchTool, args: &[String]) -> Result<Child> {
+    pub async fn execute_tool_streamed(
+        &self,
+        tool: &BlackArchTool,
+        args: &[String],
+    ) -> Result<Child> {
         // Phase 4: Run SafeCommandMiddlewares
         if let Some(policy) = &self.policy {
             self.middleware.validate_all(tool, args, policy.as_ref())?;
@@ -221,33 +261,42 @@ impl SandboxDispatcher {
         let cost_mb = SysResourceManager::estimate_cost_mb(&tool.category);
 
         if !self.res_mgr.can_allocate(cost_mb) {
-            anyhow::bail!("Backpressure: RAM insuficiente para '{}' ({} MB).", tool.name, cost_mb);
+            anyhow::bail!(
+                "Backpressure: RAM insuficiente para '{}' ({} MB).",
+                tool.name,
+                cost_mb
+            );
         }
 
         match tier {
             ExecutionTier::StrictDocker => {
                 let category = self.map_blackarch_category(&tool.category);
-                info!("🐳 [Sandbox-Stream] '{}' ({:?}) vía Docker. Límite: {}m", tool.name, category, cost_mb);
-                
+                info!(
+                    "🐳 [Sandbox-Stream] '{}' ({:?}) vía Docker. Límite: {}m",
+                    tool.name, category, cost_mb
+                );
+
                 let mut cmd = Command::new("docker");
                 cmd.arg("run")
-                   .arg("--rm")
-                   .arg("-i") 
-                   .arg(format!("--memory={}m", cost_mb))
-                   .arg("--cap-drop=ALL") // Harden: drop all capabilities
-                   .arg("--security-opt").arg("no-new-privileges") // Harden: no-new-privileges
-                   .arg("--user").arg("1000:1000"); // Harden: run as non-root
+                    .arg("--rm")
+                    .arg("-i")
+                    .arg(format!("--memory={}m", cost_mb))
+                    .arg("--cap-drop=ALL") // Harden: drop all capabilities
+                    .arg("--security-opt")
+                    .arg("no-new-privileges") // Harden: no-new-privileges
+                    .arg("--user")
+                    .arg("1000:1000"); // Harden: run as non-root
 
                 // Dynamic Networking Policy
                 match category {
                     Category::Recon | Category::TechnologyStack => {
                         cmd.arg("--network=bridge"); // OSINT needs internet
-                    },
+                    }
                     Category::Scanning | Category::Vulnerability => {
                         // Some scanners need raw sockets (CAP_NET_RAW)
-                        cmd.arg("--cap-add=NET_RAW"); 
+                        cmd.arg("--cap-add=NET_RAW");
                         cmd.arg("--network=bridge"); // REPLACED: host -> bridge for isolation
-                    },
+                    }
                     _ => {
                         cmd.arg("--network=none"); // Isolated by default
                     }
@@ -263,20 +312,20 @@ impl SandboxDispatcher {
                     }
                 }
 
-                cmd.arg("redteam-tools:v4-slim") 
-                   .arg(&tool.name)
-                   .args(sanitized_args)
-                   .stdout(std::process::Stdio::piped())
-                   .stderr(std::process::Stdio::piped());
+                cmd.arg("redteam-tools:v4-slim")
+                    .arg(&tool.name)
+                    .args(sanitized_args)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
 
                 cmd.spawn().context("Fallo al spawnear Docker Sandbox")
-            },
+            }
             ExecutionTier::FluidLocal => {
                 info!("⚡ [Sandbox-Stream] '{}' Nativo (ProcessGuard).", tool.name);
                 let mut cmd = Command::new(&tool.name);
                 cmd.args(sanitized_args)
-                   .stdout(std::process::Stdio::piped())
-                   .stderr(std::process::Stdio::piped());
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
 
                 #[cfg(unix)]
                 unsafe {
@@ -288,9 +337,11 @@ impl SandboxDispatcher {
                     });
                 }
                 cmd.spawn().context("Fallo al spawnear herramienta nativa")
-            },
+            }
             ExecutionTier::Wasm => {
-                anyhow::bail!("Wasm tier cannot be executed via streaming process (use execute_wasm instead)");
+                anyhow::bail!(
+                    "Wasm tier cannot be executed via streaming process (use execute_wasm instead)"
+                );
             }
         }
     }
@@ -301,8 +352,11 @@ impl SandboxDispatcher {
 
     pub async fn execute_tool(&self, tool: &BlackArchTool, args: &[String]) -> Result<String> {
         let child = self.execute_tool_streamed(tool, args).await?;
-        let output = child.wait_with_output().await.context("Error esperando salida del sandbox")?;
-        
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Error esperando salida del sandbox")?;
+
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!("Error en sandbox tool '{}': {}", tool.name, err);

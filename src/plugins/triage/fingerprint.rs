@@ -41,7 +41,11 @@ pub(crate) fn canonicalize_json(v: &serde_json::Value) -> String {
             format!("{{{}}}", inner)
         }
         serde_json::Value::Array(arr) => {
-            let inner = arr.iter().map(canonicalize_json).collect::<Vec<_>>().join(",");
+            let inner = arr
+                .iter()
+                .map(canonicalize_json)
+                .collect::<Vec<_>>()
+                .join(",");
             format!("[{}]", inner)
         }
         // D5: All primitives via serde_json — strings get quotes, numbers don't, booleans correct
@@ -74,9 +78,17 @@ mod tests {
         let json: serde_json::Value = serde_json::json!({"key": "value"});
         let result = canonicalize_json(&json);
         // D5: string values must be quoted
-        assert!(result.contains("\"value\""), "String values must be quoted, got: {}", result);
+        assert!(
+            result.contains("\"value\""),
+            "String values must be quoted, got: {}",
+            result
+        );
         // D5: string keys must be quoted
-        assert!(result.contains("\"key\""), "String keys must be quoted, got: {}", result);
+        assert!(
+            result.contains("\"key\""),
+            "String keys must be quoted, got: {}",
+            result
+        );
     }
 
     #[test]
@@ -84,8 +96,15 @@ mod tests {
         let json: serde_json::Value = serde_json::json!({"port": 8080});
         let result = canonicalize_json(&json);
         // Numbers should NOT be quoted
-        assert!(result.contains("8080"), "Numeric values should not be quoted, got: {}", result);
-        assert!(!result.contains("\"8080\""), "Numeric values should not be quoted");
+        assert!(
+            result.contains("8080"),
+            "Numeric values should not be quoted, got: {}",
+            result
+        );
+        assert!(
+            !result.contains("\"8080\""),
+            "Numeric values should not be quoted"
+        );
     }
 
     #[test]
@@ -98,7 +117,7 @@ mod tests {
 
     #[test]
     fn build_fingerprint_includes_title() {
-        use crate::models::{Finding, Category, Severity};
+        use crate::models::{Category, Finding, Severity};
         let finding = Finding::new(
             "test-id",
             Category::Vulnerability,
@@ -108,13 +127,19 @@ mod tests {
         );
         let fp = build_fingerprint(&finding);
         // Title should be present in fingerprint
-        assert!(fp.contains(&finding.core.title), "Fingerprint must include title");
-        assert!(fp.contains(&finding.core.description), "Fingerprint must include description");
+        assert!(
+            fp.contains(&finding.core.title),
+            "Fingerprint must include title"
+        );
+        assert!(
+            fp.contains(&finding.core.description),
+            "Fingerprint must include description"
+        );
     }
 
     #[test]
     fn build_fingerprint_is_deterministic() {
-        use crate::models::{Finding, Category, Severity};
+        use crate::models::{Category, Finding, Severity};
         let finding = Finding::new(
             "test-id-2",
             Category::Misconfiguration,

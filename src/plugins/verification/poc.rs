@@ -1,8 +1,8 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding};
 use crate::core::capability_layer::ScanLayer;
-use async_trait::async_trait;
+use crate::models::{Finding, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use anyhow::Result;
+use async_trait::async_trait;
 
 pub struct PoCVerifier {
     name: &'static str,
@@ -16,7 +16,9 @@ impl Default for PoCVerifier {
 
 impl PoCVerifier {
     pub fn new() -> Self {
-        Self { name: "poc-verifier" }
+        Self {
+            name: "poc-verifier",
+        }
     }
 }
 

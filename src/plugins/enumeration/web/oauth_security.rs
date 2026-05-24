@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use crate::utils::tool_detection::detect_tool;
 use crate::core::capability_layer::ScanLayer;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
+use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::info;
 
 pub struct OAuthScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for OAuthScanner {
 impl OAuthScanner {
     pub fn new() -> Self {
         let path = detect_tool("oauth-scanner");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -69,7 +67,8 @@ impl ScannerPlugin for OAuthScanner {
 
         // OAuth scanner typically looks for .well-known/openid-configuration or similar
         let child = Command::new(&self.binary_path)
-            .arg("-u").arg(&base_url)
+            .arg("-u")
+            .arg(&base_url)
             .arg("-silent")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -77,7 +76,10 @@ impl ScannerPlugin for OAuthScanner {
             .spawn()
             .context("Failed to spawn oauth-scanner")?;
 
-        let output = child.wait_with_output().await.context("Failed to wait for oauth-scanner")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed to wait for oauth-scanner")?;
         let mut findings = Vec::new();
 
         if output.status.success() {

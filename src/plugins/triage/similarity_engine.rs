@@ -1,6 +1,6 @@
-use tlsh_fixed::{TlshBuilder, BucketKind, ChecksumKind, Version};
 use crate::models::Finding;
 use crate::plugins::triage::bk_tree::{BkTree, SimHashBkTree};
+use tlsh_fixed::{BucketKind, ChecksumKind, TlshBuilder, Version};
 
 pub struct SimilarityEngine {
     tlsh_tree: BkTree,
@@ -35,14 +35,24 @@ impl SimilarityEngine {
             let text = format!("{} {}", finding.core.title, finding.core.description);
             let shash = compute_simhash(&text);
 
-            if let Some(original_idx) = self.simhash_tree.find_similar_within(shash, self.threshold_simhash) {
+            if let Some(original_idx) = self
+                .simhash_tree
+                .find_similar_within(shash, self.threshold_simhash)
+            {
                 // Near-duplicate found! Merge evidence.
                 let original = &mut results[original_idx];
-                original.enrichment.merged_from.push(finding.core.id.clone());
-                
+                original
+                    .enrichment
+                    .merged_from
+                    .push(finding.core.id.clone());
+
                 // Merge evidence data (preserving original values on conflict)
-                if let (Some(orig_ev), Some(new_ev)) = (&mut original.evidence.primary, &finding.evidence.primary) {
-                    if let (Some(orig_obj), Some(new_obj)) = (orig_ev.data.as_object_mut(), new_ev.data.as_object()) {
+                if let (Some(orig_ev), Some(new_ev)) =
+                    (&mut original.evidence.primary, &finding.evidence.primary)
+                {
+                    if let (Some(orig_obj), Some(new_obj)) =
+                        (orig_ev.data.as_object_mut(), new_ev.data.as_object())
+                    {
                         for (k, v) in new_obj {
                             if !orig_obj.contains_key(k) {
                                 orig_obj.insert(k.clone(), v.clone());
@@ -55,7 +65,7 @@ impl SimilarityEngine {
 
             // New unique finding - register in SimHash tree
             self.simhash_tree.insert(shash, results.len());
-            
+
             // Also index in TLSH if text is long enough (min 50 bytes)
             if let Some(thash) = compute_tlsh(&text) {
                 self.tlsh_tree.insert(thash, results.len());
@@ -73,10 +83,14 @@ pub fn compute_tlsh(input: &str) -> Option<String> {
     if input.len() < 50 {
         return None;
     }
-    
-    let mut builder = TlshBuilder::new(BucketKind::Bucket128, ChecksumKind::OneByte, Version::Version4);
+
+    let mut builder = TlshBuilder::new(
+        BucketKind::Bucket128,
+        ChecksumKind::OneByte,
+        Version::Version4,
+    );
     builder.update(input.as_bytes());
-    
+
     match builder.build() {
         Ok(tlsh) => Some(tlsh.hash()),
         Err(_) => None,
@@ -98,13 +112,13 @@ pub fn compute_simhash(input: &str) -> u64 {
 
     let mut v = [0i32; 64];
     let bytes = input.as_bytes();
-    
+
     if bytes.len() >= 3 {
         for shingle in bytes.windows(3) {
             let mut hasher = SipHasher13::new();
             shingle.hash(&mut hasher);
             let hash = hasher.finish();
-            
+
             for (i, item) in v.iter_mut().enumerate() {
                 if (hash >> i) & 1 == 1 {
                     *item += 1;
@@ -118,10 +132,14 @@ pub fn compute_simhash(input: &str) -> u64 {
         input.hash(&mut hasher);
         let hash = hasher.finish();
         for (i, item) in v.iter_mut().enumerate() {
-            if (hash >> i) & 1 == 1 { *item += 1; } else { *item -= 1; }
+            if (hash >> i) & 1 == 1 {
+                *item += 1;
+            } else {
+                *item -= 1;
+            }
         }
     }
-    
+
     let mut simhash = 0u64;
     for (i, &item) in v.iter().enumerate() {
         if item > 0 {
@@ -139,26 +157,26 @@ pub fn hamming_distance(h1: u64, h2: u64) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Finding, Category, Severity};
+    use crate::models::{Category, Finding, Severity};
 
     #[test]
     fn test_near_duplicate_merging() {
         let mut engine = SimilarityEngine::new();
-        
+
         let f1 = Finding::new(
             "FINDING-1",
             Category::Vulnerability,
             Severity::High,
             "SQL injection in /api/v1/users param=id",
-            serde_json::json!({"url": "http://target/api/v1/users?id=1"})
+            serde_json::json!({"url": "http://target/api/v1/users?id=1"}),
         );
-        
+
         let f2 = Finding::new(
             "FINDING-2",
             Category::Vulnerability,
             Severity::High,
             "SQL injection in /api/v1/users param=id ",
-            serde_json::json!({"extra": "data"})
+            serde_json::json!({"extra": "data"}),
         );
 
         let findings = vec![f1, f2];
@@ -172,21 +190,21 @@ mod tests {
     #[test]
     fn test_dissimilar_findings_not_merged() {
         let mut engine = SimilarityEngine::new();
-        
+
         let f1 = Finding::new(
             "FINDING-1",
             Category::Vulnerability,
             Severity::High,
             "SQL injection in /api/v1/users param=id",
-            serde_json::json!({})
+            serde_json::json!({}),
         );
-        
+
         let f2 = Finding::new(
             "FINDING-2",
             Category::Misconfiguration,
             Severity::Medium,
             "Exposed S3 bucket containing sensitive logs",
-            serde_json::json!({})
+            serde_json::json!({}),
         );
 
         let findings = vec![f1, f2];
@@ -207,7 +225,7 @@ mod tests {
                 Category::Vulnerability,
                 Severity::High,
                 "XSS vulnerability in search endpoint", // Same title/desc for batch test
-                serde_json::json!({"attempt": i})
+                serde_json::json!({"attempt": i}),
             ));
         }
 
@@ -218,13 +236,17 @@ mod tests {
                 Category::Recon,
                 Severity::Low,
                 &format!("Subdomain discovered: node-{}.target.com", i),
-                serde_json::json!({"node": i})
+                serde_json::json!({"node": i}),
             ));
         }
 
         let deduped = engine.dedup_findings(findings);
-        assert_eq!(deduped.len(), 8, "Expected 1 (merged) + 7 (unique) = 8 findings");
-        
+        assert_eq!(
+            deduped.len(),
+            8,
+            "Expected 1 (merged) + 7 (unique) = 8 findings"
+        );
+
         let merged = deduped.iter().find(|f| f.core.id == "DUP-0").unwrap();
         assert_eq!(merged.enrichment.merged_from.len(), 2);
     }

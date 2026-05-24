@@ -1,11 +1,11 @@
-use crate::models::{TargetHost, ScanMetadata};
 use super::DataSink;
+use crate::models::{ScanMetadata, TargetHost};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use std::sync::Arc;
 use std::io::Write;
-use async_trait::async_trait;
+use std::sync::Arc;
 
 /// V10 HARDENING: Tactical Webhook Sink for C2/Exfiltration.
 /// Uses reqwest to send results to a remote endpoint in real-time.
@@ -18,7 +18,11 @@ pub struct TacticalWebhookSink {
 }
 
 impl TacticalWebhookSink {
-    pub fn new(url: String, auth_token: Option<String>, pm: Arc<crate::utils::proxy::ProxyManager>) -> Result<Self> {
+    pub fn new(
+        url: String,
+        auth_token: Option<String>,
+        pm: Arc<crate::utils::proxy::ProxyManager>,
+    ) -> Result<Self> {
         let token = auth_token.context("Security Violation: C2 Webhook integration requires C2_TOKEN for authorization. Cannot send findings without authentication.")?;
         Ok(Self {
             proxy_manager: pm,
@@ -36,26 +40,33 @@ impl TacticalWebhookSink {
 
         let json = serde_json::to_string(&self.buffer)
             .context("TacticalWebhookSink: Failed to serialize batch to JSON")?;
-        
+
         let scrubbed_json = crate::core::ai::scrubber::SCRUBBER.scrub(&json);
-        
+
         // Gzip compression for remote latency optimization
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(scrubbed_json.as_bytes())?;
         let compressed_data = encoder.finish()?;
 
-        let host = url::Url::parse(&self.url)?.host_str().unwrap_or("c2-server").to_string();
+        let host = url::Url::parse(&self.url)?
+            .host_str()
+            .unwrap_or("c2-server")
+            .to_string();
         let (_, client) = self.proxy_manager.get_client_fail_closed(&host)?;
 
-        let mut request = client.post(&self.url)
+        let mut request = client
+            .post(&self.url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header(reqwest::header::CONTENT_ENCODING, "gzip")
             .body(compressed_data);
-        
+
         request = request.header("Authorization", format!("Bearer {}", self.auth_token));
 
-        request.send().await.context("TacticalWebhookSink: Failed to send batched result to C2")?;
-        
+        request
+            .send()
+            .await
+            .context("TacticalWebhookSink: Failed to send batched result to C2")?;
+
         self.buffer.clear();
         Ok(())
     }
@@ -72,15 +83,20 @@ impl DataSink for TacticalWebhookSink {
     }
 
     async fn write_metadata(&mut self, metadata: &ScanMetadata) -> Result<()> {
-        let host = url::Url::parse(&self.url)?.host_str().unwrap_or("c2-server").to_string();
+        let host = url::Url::parse(&self.url)?
+            .host_str()
+            .unwrap_or("c2-server")
+            .to_string();
         let (_, client) = self.proxy_manager.get_client_fail_closed(&host)?;
 
-        let mut request = client.post(format!("{}/metadata", self.url))
-            .json(metadata);
-            
+        let mut request = client.post(format!("{}/metadata", self.url)).json(metadata);
+
         request = request.header("Authorization", format!("Bearer {}", self.auth_token));
 
-        request.send().await.context("TacticalWebhookSink: Failed to send metadata to C2")?;
+        request
+            .send()
+            .await
+            .context("TacticalWebhookSink: Failed to send metadata to C2")?;
         Ok(())
     }
 

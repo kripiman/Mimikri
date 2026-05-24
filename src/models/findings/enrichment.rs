@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::classification::ConsolidationUrgency;
+use serde::{Deserialize, Serialize};
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -16,18 +16,18 @@ pub enum PocStrategy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ValidatedPoc {
-    Nmap { 
-        port: u16, 
-        flags: Vec<String> 
+    Nmap {
+        port: u16,
+        flags: Vec<String>,
     },
-    Curl { 
-        path: String, 
-        headers: Vec<(String, String)> 
+    Curl {
+        path: String,
+        headers: Vec<(String, String)>,
     },
     Ping,
     Dig,
-    TcpConnect { 
-        port: u16 
+    TcpConnect {
+        port: u16,
     },
 }
 

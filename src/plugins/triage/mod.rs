@@ -1,7 +1,7 @@
-pub mod similarity_engine;
-pub mod dedup_rules;
 pub mod bk_tree;
+pub mod dedup_rules;
 pub mod fingerprint;
+pub mod similarity_engine;
 
 use crate::models::Finding;
 use dedup_rules::TriageEngine;

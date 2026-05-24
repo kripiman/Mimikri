@@ -1,9 +1,9 @@
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use bloomfilter::Bloom;
-use crate::models::{TargetHost, TargetStatus, TargetType, Finding, Category, Severity};
+use crate::models::{Category, Finding, Severity, TargetHost, TargetStatus, TargetType};
 use crate::plugins::DiscoveryPlugin;
 use crate::utils::JitterSleep;
+use bloomfilter::Bloom;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub fn spawn_discovery_stage(
     rx: mpsc::Receiver<TargetHost>,
@@ -17,18 +17,24 @@ pub fn spawn_discovery_stage(
 
     tokio::spawn(async move {
         while let Some(mut target) = rx.recv().await {
-            if shutdown_token.is_cancelled() { break; }
+            if shutdown_token.is_cancelled() {
+                break;
+            }
 
-            if target.target_type == TargetType::Mobile || target.target_type == TargetType::Container {
+            if target.target_type == TargetType::Mobile
+                || target.target_type == TargetType::Container
+            {
                 let _ = liveness_tx.send(target).await;
                 continue;
             }
-            
+
             if let Some(ref j) = jitter {
                 j.apply().await;
             }
 
-            if seen_domains.check(&target.host) { continue; }
+            if seen_domains.check(&target.host) {
+                continue;
+            }
             seen_domains.set(&target.host);
 
             let _ = liveness_tx.send(target.clone()).await;
@@ -50,8 +56,9 @@ pub fn spawn_discovery_stage(
                     for res in subdomains {
                         if !seen_domains.check(&res.host) {
                             seen_domains.set(&res.host);
-                            
-                            let mut data = serde_json::json!({ "subdomain": res.host, "source": name });
+
+                            let mut data =
+                                serde_json::json!({ "subdomain": res.host, "source": name });
                             if let Some(obj) = res.metadata.as_object() {
                                 for (k, v) in obj {
                                     data[k] = v.clone();
@@ -62,33 +69,35 @@ pub fn spawn_discovery_stage(
                             let high_value = res.metadata["high_value_target"].clone();
 
                             Arc::make_mut(&mut target.findings).push(Finding::new(
-                                "DISCOVERED_SUBDOMAIN", 
-                                Category::Recon, 
-                                Severity::Info, 
-                                &format!("Discovered via {}: {}", name, res.host), 
-                                data
+                                "DISCOVERED_SUBDOMAIN",
+                                Category::Recon,
+                                Severity::Info,
+                                &format!("Discovered via {}: {}", name, res.host),
+                                data,
                             ));
-                            
-                            let _ = liveness_tx.send(TargetHost { 
-                                host: res.host, 
-                                ip: None, 
-                                resolved_ip: None,
-                                status: TargetStatus::Pending, 
-                                target_type: TargetType::Web,
-                                file_path: None,
-                                user: None,
-                                findings: Arc::new(Vec::new()),
-                                tool_suggestions: Arc::new(Vec::new()),
-                                tactical_context: Arc::new(serde_json::json!({
-                                    "priority_plugins": priority_plugins,
-                                    "high_value_target": high_value,
-                                })),
-                                extra_data: Arc::new(serde_json::json!({})),
-                                version: 0,
-                                skip_heavy_scan: false,
-                                scan_id: target.scan_id,
-                                scope_id: String::new(),
-                            }).await;
+
+                            let _ = liveness_tx
+                                .send(TargetHost {
+                                    host: res.host,
+                                    ip: None,
+                                    resolved_ip: None,
+                                    status: TargetStatus::Pending,
+                                    target_type: TargetType::Web,
+                                    file_path: None,
+                                    user: None,
+                                    findings: Arc::new(Vec::new()),
+                                    tool_suggestions: Arc::new(Vec::new()),
+                                    tactical_context: Arc::new(serde_json::json!({
+                                        "priority_plugins": priority_plugins,
+                                        "high_value_target": high_value,
+                                    })),
+                                    extra_data: Arc::new(serde_json::json!({})),
+                                    version: 0,
+                                    skip_heavy_scan: false,
+                                    scan_id: target.scan_id,
+                                    scope_id: String::new(),
+                                })
+                                .await;
                         }
                     }
                 }

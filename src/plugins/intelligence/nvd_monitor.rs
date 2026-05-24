@@ -1,11 +1,11 @@
-use crate::models::{Finding, Category, Severity, TargetHost, TargetType, constants::*};
-use std::sync::RwLock;
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel};
-use async_trait::async_trait;
-use chrono::{DateTime, Utc, Duration};
+use crate::models::{constants::*, Category, Finding, Severity, TargetHost, TargetType};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
 use anyhow::Result;
-use tracing::{info, warn};
+use async_trait::async_trait;
+use chrono::{DateTime, Duration, Utc};
 use serde_json::json;
+use std::sync::RwLock;
+use tracing::{info, warn};
 
 pub struct NvdMonitor {
     last_check: RwLock<DateTime<Utc>>,
@@ -23,11 +23,19 @@ impl NvdMonitor {
     pub async fn poll(&self) -> Result<Vec<Finding>> {
         let client = reqwest::Client::new();
         let now = Utc::now();
-        
-        let start_date = self.last_check.read().unwrap().format("%Y-%m-%dT%H:%M:%S").to_string();
+
+        let start_date = self
+            .last_check
+            .read()
+            .unwrap()
+            .format("%Y-%m-%dT%H:%M:%S")
+            .to_string();
         let end_date = now.format("%Y-%m-%dT%H:%M:%S").to_string();
 
-        info!("🛡️ V14.6 INTEL: Polling NVD for new CVEs ({} to {})...", start_date, end_date);
+        info!(
+            "🛡️ V14.6 INTEL: Polling NVD for new CVEs ({} to {})...",
+            start_date, end_date
+        );
 
         let url = format!(
             "https://services.nvd.nist.gov/rest/json/cves/2.0/?pubStartDate={}&pubEndDate={}",
@@ -49,28 +57,35 @@ impl NvdMonitor {
         let mut findings = Vec::new();
 
         if let Some(vulnerabilities) = body.get("vulnerabilities").and_then(|v| v.as_array()) {
-            info!("🛡️ V14.6 INTEL: Found {} new CVEs in NVD.", vulnerabilities.len());
+            info!(
+                "🛡️ V14.6 INTEL: Found {} new CVEs in NVD.",
+                vulnerabilities.len()
+            );
             for v in vulnerabilities {
                 if let Some(cve) = v.get("cve") {
                     let id = cve.get("id").and_then(|i| i.as_str()).unwrap_or("Unknown");
-                    let description = cve.get("descriptions")
+                    let description = cve
+                        .get("descriptions")
                         .and_then(|d| d.as_array())
                         .and_then(|d| d.first())
                         .and_then(|d| d.get("value"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("No description available.");
 
-                    findings.push(Finding::new(
-                        FINDING_NEW_CVE_DISCOVERED,
-                        Category::Recon,
-                        Severity::Info,
-                        &format!("NVD: New CVE Published - {}", id),
-                        json!({
-                            "cve_id": id,
-                            "description": description,
-                            "source": "NVD",
-                        })
-                    ).with_references(vec![format!("https://nvd.nist.gov/vuln/detail/{}", id)]));
+                    findings.push(
+                        Finding::new(
+                            FINDING_NEW_CVE_DISCOVERED,
+                            Category::Recon,
+                            Severity::Info,
+                            &format!("NVD: New CVE Published - {}", id),
+                            json!({
+                                "cve_id": id,
+                                "description": description,
+                                "source": "NVD",
+                            }),
+                        )
+                        .with_references(vec![format!("https://nvd.nist.gov/vuln/detail/{}", id)]),
+                    );
                 }
             }
         }

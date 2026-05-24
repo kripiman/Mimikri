@@ -25,13 +25,20 @@ impl BountyExporter {
     }
 
     fn compress_evidence(finding: &Finding) -> String {
-        let raw = finding.evidence.primary.as_ref()
+        let raw = finding
+            .evidence
+            .primary
+            .as_ref()
             .map(|e| serde_json::to_string_pretty(&e.data).unwrap_or_default())
             .unwrap_or_default();
 
-        const MAX: usize = 4096; 
+        const MAX: usize = 4096;
         if raw.len() > MAX {
-            format!("{}\n... [+{} bytes truncated]", &raw[..MAX], raw.len() - MAX)
+            format!(
+                "{}\n... [+{} bytes truncated]",
+                &raw[..MAX],
+                raw.len() - MAX
+            )
         } else {
             raw
         }
@@ -43,7 +50,13 @@ impl BountyExporter {
                 return ai.exploit_path.clone();
             }
         }
-        if let Some(url) = finding.evidence.primary.as_ref().and_then(|e| e.data.get("url")).and_then(|v| v.as_str()) {
+        if let Some(url) = finding
+            .evidence
+            .primary
+            .as_ref()
+            .and_then(|e| e.data.get("url"))
+            .and_then(|v| v.as_str())
+        {
             return format!("1. Navigate to: `{}`\n2. Observe the response headers and body for vulnerability indicators.", url);
         }
         "1. Capture the raw HTTP request from the 'Proof of Concept' section below.\n2. Replay the request in Burp Suite Repeater.\n3. Verify the impact in the response.".to_string()
@@ -61,7 +74,7 @@ impl BountyExporter {
     fn attack_scenario(finding: &Finding) -> String {
         if let Some(ai) = &finding.enrichment.ai_analysis {
             if !ai.stealth_notes.is_empty() {
-                return ai.stealth_notes.clone(); 
+                return ai.stealth_notes.clone();
             }
         }
         "1. Attacker identifies the vulnerable endpoint.\n2. Attacker crafts a specific payload based on the observed behavior.\n3. Result: Unauthorized action or data exposure is achieved.".to_string()
@@ -69,11 +82,11 @@ impl BountyExporter {
 
     fn recommendation(finding: &Finding) -> String {
         match finding.core.category {
-            _ if finding.core.title.to_lowercase().contains("xss") => 
+            _ if finding.core.title.to_lowercase().contains("xss") =>
                 "Implement strict output encoding and use a Content Security Policy (CSP). Sanitize all user-controlled input using a vetted library.",
-            _ if finding.core.title.to_lowercase().contains("idor") || finding.core.title.to_lowercase().contains("bola") => 
+            _ if finding.core.title.to_lowercase().contains("idor") || finding.core.title.to_lowercase().contains("bola") =>
                 "Implement object-level authorization checks. Ensure the authenticated user has rights to access the requested resource ID.",
-            _ if finding.core.title.to_lowercase().contains("ssrf") => 
+            _ if finding.core.title.to_lowercase().contains("ssrf") =>
                 "Implement an allow-list for outgoing requests. Do not allow the application to make requests to internal IP ranges (127.0.0.1, 169.254.169.254, etc.).",
             _ => "Implement proper input validation and follow the principle of least privilege for application components."
         }.to_string()
@@ -81,7 +94,7 @@ impl BountyExporter {
 
     fn generate_common_blocks(f: &Finding) -> String {
         let mut out = String::new();
-        
+
         out.push_str("## Summary\n");
         if let Some(ai) = &f.enrichment.ai_analysis {
             out.push_str(&ai.summary);
@@ -92,7 +105,13 @@ impl BountyExporter {
 
         out.push_str("## Vulnerability Details\n");
         out.push_str(&format!("- **Type:** {:?}\n", f.core.category));
-        if let Some(url) = f.evidence.primary.as_ref().and_then(|e| e.data.get("url")).and_then(|v| v.as_str()) {
+        if let Some(url) = f
+            .evidence
+            .primary
+            .as_ref()
+            .and_then(|e| e.data.get("url"))
+            .and_then(|v| v.as_str())
+        {
             out.push_str(&format!("- **Affected Endpoint:** {}\n", url));
         }
         if !f.enrichment.cwe.is_empty() {
@@ -135,7 +154,10 @@ impl BountyExporter {
                 out.push_str(&format!("- {}\n", r));
             }
             for c in &f.enrichment.cwe {
-                out.push_str(&format!("- https://cwe.mitre.org/data/definitions/{}.html\n", c.replace("CWE-", "")));
+                out.push_str(&format!(
+                    "- https://cwe.mitre.org/data/definitions/{}.html\n",
+                    c.replace("CWE-", "")
+                ));
             }
             out.push('\n');
         }

@@ -14,12 +14,12 @@ pub mod targets;
 
 pub use approvals::{get_approvals, post_approval_decision, ApprovalDecisionPayload};
 pub use credentials::get_credentials;
-pub use findings::{findings_stream, get_stats_handler, get_metrics, get_roi_rankings};
+pub use findings::{findings_stream, get_metrics, get_roi_rankings, get_stats_handler};
 pub use missions::submit_mission;
 pub use mobile::submit_mobile_scan;
 pub use reports::export_report;
-pub use status::{get_swarm_status, get_containers};
-pub use targets::{TargetsQuery, get_targets, get_target_findings, get_attack_graph};
+pub use status::{get_containers, get_swarm_status};
+pub use targets::{get_attack_graph, get_target_findings, get_targets, TargetsQuery};
 
 use super::models::DashboardStats;
 use super::state::DashboardState;
@@ -29,7 +29,11 @@ pub fn get_current_stats(state: &DashboardState) -> DashboardStats {
     let mut sys = sysinfo::System::new_all();
     sys.refresh_all();
 
-    let tokens = state.budget.as_ref().map(|b| b.current_total()).unwrap_or(0);
+    let tokens = state
+        .budget
+        .as_ref()
+        .map(|b| b.current_total())
+        .unwrap_or(0);
     let limit = state.budget.as_ref().map(|b| b.max_tokens).unwrap_or(0);
 
     DashboardStats {

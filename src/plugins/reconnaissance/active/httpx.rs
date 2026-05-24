@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
+use crate::utils::proxy::ProxyManager;
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use std::sync::Arc;
-use crate::utils::proxy::ProxyManager;
+use tracing::info;
 
 pub struct HttpxScanner {
     binary_path: String,
@@ -27,7 +27,7 @@ impl ScannerPlugin for HttpxScanner {
     fn name(&self) -> &'static str {
         crate::models::PLUGIN_HTTPX
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Tactical HTTP probing and fingerprinter (httpx): Multi-protocol discovery with fingerprinting and tech-detection via managed egress.".to_string(),
@@ -52,10 +52,12 @@ impl ScannerPlugin for HttpxScanner {
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("HttpxScanner: probing HTTP for {}", target.host);
-        
+
         // --- STEALTH-003: Using tactical command wrapper with live ProxyManager ---
-        let mut child = crate::utils::common::stealth_command(&self.binary_path, Some(&self.proxy_manager));
-        child.arg("-u")
+        let mut child =
+            crate::utils::common::stealth_command(&self.binary_path, Some(&self.proxy_manager));
+        child
+            .arg("-u")
             .arg(&target.host)
             .arg("-title")
             .arg("-tech-detect")
@@ -65,13 +67,16 @@ impl ScannerPlugin for HttpxScanner {
             .stderr(Stdio::null());
 
         let mut spawned = child.spawn().context("Failed to spawn httpx")?;
-        
-        let stdout = spawned.stdout.take().context("Failed to capture httpx stdout")?;
+
+        let stdout = spawned
+            .stdout
+            .take()
+            .context("Failed to capture httpx stdout")?;
         use tokio::io::AsyncBufReadExt;
         let mut reader = tokio::io::BufReader::new(stdout).lines();
-        
+
         let mut findings = Vec::new();
-        
+
         // --- MEM-001: Streaming output processing instead of buffering entire output ---
         while let Some(line) = reader.next_line().await? {
             if !line.is_empty() {
@@ -80,14 +85,14 @@ impl ScannerPlugin for HttpxScanner {
                     Category::Recon,
                     Severity::Info,
                     &format!("HTTP-alive: {}", target.host),
-                    serde_json::json!({ "output": line.trim() })
+                    serde_json::json!({ "output": line.trim() }),
                 ));
             }
         }
 
         // Wait for process to finish (kill_on_drop(true) in stealth_command handle reaping)
         let _ = spawned.wait().await?;
-        
+
         Ok(findings)
     }
 }

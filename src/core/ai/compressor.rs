@@ -1,7 +1,7 @@
-use crate::models::{Finding, Category, TargetHost};
-use crate::plugins::PluginMetadata;
-use super::types::RouteLevel;
 use super::scrubber::SCRUBBER;
+use super::types::RouteLevel;
+use crate::models::{Category, Finding, TargetHost};
+use crate::plugins::PluginMetadata;
 
 /// Helper to minify findings and plugins to save tokens.
 pub struct ContextCompressor;
@@ -12,8 +12,13 @@ impl ContextCompressor {
             return Self::compress_finding_dense(finding);
         }
 
-        let mut ev = finding.evidence.primary.as_ref().map(|e| e.data.clone()).unwrap_or_else(|| serde_json::json!({}));
-        
+        let mut ev = finding
+            .evidence
+            .primary
+            .as_ref()
+            .map(|e| e.data.clone())
+            .unwrap_or_else(|| serde_json::json!({}));
+
         // 1. Mandatory scrubbing
         if let Ok(sanitized) = serde_json::to_string(&ev).map(|s| SCRUBBER.scrub(&s)) {
             if let Ok(json) = serde_json::from_str(&sanitized) {
@@ -26,7 +31,12 @@ impl ContextCompressor {
             Self::minify_evidence_object(obj, 300); // Reduced from 512 to 300
         }
 
-        let verified = finding.evidence.primary.as_ref().map(|e| e.verified).unwrap_or(false);
+        let verified = finding
+            .evidence
+            .primary
+            .as_ref()
+            .map(|e| e.verified)
+            .unwrap_or(false);
 
         // Dense Encoding: Use single-letter keys and values where possible
         serde_json::json!({
@@ -42,8 +52,13 @@ impl ContextCompressor {
 
     /// Dense context compression for findings to achieve maximum token savings.
     pub fn compress_finding_dense(finding: &Finding) -> serde_json::Value {
-        let mut ev = finding.evidence.primary.as_ref().map(|e| e.data.clone()).unwrap_or_else(|| serde_json::json!({}));
-        
+        let mut ev = finding
+            .evidence
+            .primary
+            .as_ref()
+            .map(|e| e.data.clone())
+            .unwrap_or_else(|| serde_json::json!({}));
+
         if let Ok(sanitized) = serde_json::to_string(&ev).map(|s| SCRUBBER.scrub(&s)) {
             if let Ok(json) = serde_json::from_str(&sanitized) {
                 ev = json;
@@ -55,7 +70,12 @@ impl ContextCompressor {
             obj.remove("raw_response"); // Remove raw_response completely to save tokens
         }
 
-        let verified = finding.evidence.primary.as_ref().map(|e| e.verified).unwrap_or(false);
+        let verified = finding
+            .evidence
+            .primary
+            .as_ref()
+            .map(|e| e.verified)
+            .unwrap_or(false);
 
         serde_json::json!({
             "id": finding.core.id,
@@ -68,21 +88,32 @@ impl ContextCompressor {
         })
     }
 
-
     pub fn compress_plugins(plugins: &[PluginMetadata]) -> Vec<serde_json::value::Value> {
-        plugins.iter().map(|p| {
-            serde_json::json!({
-                "n": p.name,
-                "caps": p.capabilities,
-                "l": p.layer, // Shortened lyr to l
+        plugins
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "n": p.name,
+                    "caps": p.capabilities,
+                    "l": p.layer, // Shortened lyr to l
+                })
             })
-        }).collect()
+            .collect()
     }
 
     pub fn compress_target(target: &TargetHost) -> serde_json::value::Value {
-        let tech_stack: Vec<String> = target.findings.iter()
+        let tech_stack: Vec<String> = target
+            .findings
+            .iter()
             .filter(|f| f.core.category == Category::TechnologyStack)
-            .filter_map(|f| f.evidence.primary.as_ref()?.data.get("plugins")?.as_object())
+            .filter_map(|f| {
+                f.evidence
+                    .primary
+                    .as_ref()?
+                    .data
+                    .get("plugins")?
+                    .as_object()
+            })
             .flat_map(|obj| obj.keys().cloned())
             .collect();
 
@@ -106,7 +137,7 @@ impl ContextCompressor {
     /// Ultra-aggressive compression for Swarm Planner
     pub fn compress_swarm_context(finding: &Finding, _target: &TargetHost) -> serde_json::Value {
         let mut base = Self::compress_finding(finding, RouteLevel::Local);
-        
+
         if let Some(ev) = base.get_mut("ev").and_then(|e| e.as_object_mut()) {
             ev.remove("body");
             ev.remove("raw_response");
@@ -129,7 +160,8 @@ impl ContextCompressor {
                 let mut compressed_ev = ev.clone();
                 if let Some(val) = compressed_ev.get_mut("snippet") {
                     if let Some(s) = val.as_str() {
-                        if s.len() > 200 { // Reduced from 300 to 200
+                        if s.len() > 200 {
+                            // Reduced from 300 to 200
                             *val = serde_json::json!(format!("{}...", &s[..200]));
                         }
                     }
@@ -142,7 +174,10 @@ impl ContextCompressor {
 
     // --- INTERNAL HELPERS TO PREVENT ARROW PATTERN ---
 
-    fn minify_evidence_object(obj: &mut serde_json::Map<String, serde_json::Value>, body_limit: usize) {
+    fn minify_evidence_object(
+        obj: &mut serde_json::Map<String, serde_json::Value>,
+        body_limit: usize,
+    ) {
         // Truncate bodies
         if let Some(val) = obj.get_mut("body") {
             if let Some(s) = val.as_str() {
@@ -155,7 +190,11 @@ impl ContextCompressor {
         // Hardening: Stripping noisy headers to save tokens
         // V15.1 Fix (AIP 2.1): Tactical headers MUST be preserved.
         let whitelist = vec![
-            "location", "www-authenticate", "x-content-type-options", "server", "x-powered-by"
+            "location",
+            "www-authenticate",
+            "x-content-type-options",
+            "server",
+            "x-powered-by",
         ];
 
         Self::minify_headers(obj, &whitelist);
@@ -165,7 +204,7 @@ impl ContextCompressor {
         if let Some(h_obj) = obj.get_mut("headers").and_then(|h| h.as_object_mut()) {
             h_obj.retain(|k, _| {
                 let key = k.to_lowercase();
-                
+
                 // Strip session/auth noise
                 if key.contains("cookie") || key.contains("auth") || key == "user-agent" {
                     return false;
@@ -175,5 +214,4 @@ impl ContextCompressor {
             });
         }
     }
-
 }

@@ -1,12 +1,13 @@
+use crate::core::ai::scrubber::SCRUBBER;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
-use regex::Regex;
-use once_cell::sync::Lazy;
-use crate::core::ai::scrubber::SCRUBBER;
 
 static IP_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap());
 static DOMAIN_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]\b").unwrap()
+    Regex::new(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]\b")
+        .unwrap()
 });
 
 const MAX_FILTER_BUFFER: usize = 5 * 1024 * 1024;
@@ -22,9 +23,7 @@ static SQLMAP_SIGNAL_RE: Lazy<Regex> = Lazy::new(|| {
 // Feroxbuster --quiet output: "200      GET   1234l   5678w  123456c http://..."
 // Conservar solo líneas con código HTTP 2xx/3xx al inicio de línea (señal).
 // Eliminar 4xx/5xx que son ruido masivo en fuzzing.
-static FEROX_NOISE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^\s*(?:4\d{2}|5\d{2})\s+").unwrap()
-});
+static FEROX_NOISE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*(?:4\d{2}|5\d{2})\s+").unwrap());
 
 // Naabu sin -silent puede emitir el banner del motor Go de ProjectDiscovery.
 static NAABU_NOISE_RE: Lazy<Regex> = Lazy::new(|| {
@@ -82,16 +81,10 @@ impl OutputFilter {
         );
 
         // Naabu: eliminar líneas de banner/motor Go-PD. Conservar "host:port".
-        strategies.insert(
-            "NaabuScanner",
-            FilterStrategy::Deny(vec![&NAABU_NOISE_RE]),
-        );
+        strategies.insert("NaabuScanner", FilterStrategy::Deny(vec![&NAABU_NOISE_RE]));
 
         // Httpx: eliminar líneas de motor. Conservar líneas de resultado.
-        strategies.insert(
-            "HttpxScanner",
-            FilterStrategy::Deny(vec![&HTTPX_NOISE_RE]),
-        );
+        strategies.insert("HttpxScanner", FilterStrategy::Deny(vec![&HTTPX_NOISE_RE]));
 
         // TruffleHog: eliminar progress/banners. Conservar líneas de hallazgo.
         strategies.insert(
@@ -101,10 +94,7 @@ impl OutputFilter {
 
         // SQLMap: allowlist — el log mezcla ruido e información crítica en el mismo
         // prefijo [INFO]. Solo conservar líneas con términos de explotación confirmada.
-        strategies.insert(
-            "SqlMapScanner",
-            FilterStrategy::Allow(&SQLMAP_SIGNAL_RE),
-        );
+        strategies.insert("SqlMapScanner", FilterStrategy::Allow(&SQLMAP_SIGNAL_RE));
 
         Self { strategies }
     }
@@ -113,7 +103,8 @@ impl OutputFilter {
         let input = if output.len() > MAX_FILTER_BUFFER {
             tracing::warn!(
                 "🛡️ [MCP-HARDEN] Truncando output de {} ({} bytes > 5MB)",
-                plugin_name, output.len()
+                plugin_name,
+                output.len()
             );
             &output[..MAX_FILTER_BUFFER]
         } else {
@@ -127,7 +118,8 @@ impl OutputFilter {
                 // Allowlist: conservar solo líneas con señal real.
                 // Las genéricas no aplican aquí — en SQLMap un separador visual
                 // puede estar pegado a una línea de señal.
-                lines.into_iter()
+                lines
+                    .into_iter()
                     .filter(|line| {
                         let t = line.trim();
                         !t.is_empty() && signal_re.is_match(t)
@@ -136,22 +128,35 @@ impl OutputFilter {
             }
             Some(FilterStrategy::Deny(deny_rules)) => {
                 // Denylist específica + genéricas acumulativas.
-                lines.into_iter()
+                lines
+                    .into_iter()
                     .filter(|line| {
                         let t = line.trim();
-                        if t.is_empty() { return false; }
+                        if t.is_empty() {
+                            return false;
+                        }
                         // 1. Reglas genéricas siempre (GAP-5: Guard for code indentation)
-                        let is_code = t.contains("fn ") || t.contains("def ") || t.contains("pub ") || t.contains("let ") || t.contains("mut ");
-                        
+                        let is_code = t.contains("fn ")
+                            || t.contains("def ")
+                            || t.contains("pub ")
+                            || t.contains("let ")
+                            || t.contains("mut ");
+
                         for re in GENERIC_NOISE_RULES.iter() {
                             // If it looks like code, don't apply rules that might strip indentation
-                            if is_code && re.as_str().contains(r"^\s*") { continue; }
-                            
-                            if re.is_match(t) { return false; }
+                            if is_code && re.as_str().contains(r"^\s*") {
+                                continue;
+                            }
+
+                            if re.is_match(t) {
+                                return false;
+                            }
                         }
                         // 2. Reglas específicas del plugin
                         for re in deny_rules {
-                            if re.is_match(t) { return false; }
+                            if re.is_match(t) {
+                                return false;
+                            }
                         }
                         true
                     })
@@ -159,17 +164,28 @@ impl OutputFilter {
             }
             None => {
                 // Plugin sin reglas específicas: solo genéricas.
-                lines.into_iter()
+                lines
+                    .into_iter()
                     .filter(|line| {
                         let t = line.trim();
-                        if t.is_empty() { return false; }
-                        
-                        let is_code = t.contains("fn ") || t.contains("def ") || t.contains("pub ") || t.contains("let ") || t.contains("mut ");
+                        if t.is_empty() {
+                            return false;
+                        }
+
+                        let is_code = t.contains("fn ")
+                            || t.contains("def ")
+                            || t.contains("pub ")
+                            || t.contains("let ")
+                            || t.contains("mut ");
 
                         for re in GENERIC_NOISE_RULES.iter() {
-                            if is_code && re.as_str().contains(r"^\s*") { continue; }
-                            
-                            if re.is_match(t) { return false; }
+                            if is_code && re.as_str().contains(r"^\s*") {
+                                continue;
+                            }
+
+                            if re.is_match(t) {
+                                return false;
+                            }
                         }
                         true
                     })
@@ -184,15 +200,25 @@ impl OutputFilter {
     /// Clasifica el contenido como código o lenguaje natural.
     pub fn is_compressible_file(path: &str) -> bool {
         matches!(
-            std::path::Path::new(path).extension().and_then(|e| e.to_str()),
+            std::path::Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str()),
             Some("md") | Some("txt") | Some("markdown") | Some("log") | None
         )
     }
 
     pub fn is_code_file(path: &str) -> bool {
         matches!(
-            std::path::Path::new(path).extension().and_then(|e| e.to_str()),
-            Some("rs") | Some("py") | Some("js") | Some("ts") | Some("go") | Some("c") | Some("cpp")
+            std::path::Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str()),
+            Some("rs")
+                | Some("py")
+                | Some("js")
+                | Some("ts")
+                | Some("go")
+                | Some("c")
+                | Some("cpp")
         )
     }
 }
@@ -251,7 +277,9 @@ impl DataSanitizer {
 
         for cap in DOMAIN_RE.find_iter(text) {
             let real = cap.as_str();
-            if real == "127.0.0.1" || real == "localhost" { continue; }
+            if real == "127.0.0.1" || real == "localhost" {
+                continue;
+            }
             let mask = self.get_or_create_mask(real, "DOMAIN_TARGET");
             masked = masked.replace(real, &mask);
         }
@@ -308,7 +336,10 @@ mod tests {
         let s = DataSanitizer::new();
         let input = "200      GET   100l   200w  http://target.com/error404handler";
         let out = s.filter_tool_output("FeroxbusterScanner", input);
-        assert!(out.contains("error404handler"), "no debe eliminar URL con 404 en el path");
+        assert!(
+            out.contains("error404handler"),
+            "no debe eliminar URL con 404 en el path"
+        );
     }
 
     #[test]
@@ -335,10 +366,16 @@ mod tests {
                      [INFO] retrieved: users_db\n\
                      [INFO] testing for SQL injection on GET parameter 'name'";
         let out = s.filter_tool_output("SqlMapScanner", input);
-        assert!(out.contains("injectable"), "debe conservar señal de inyección");
+        assert!(
+            out.contains("injectable"),
+            "debe conservar señal de inyección"
+        );
         assert!(out.contains("fetching"), "debe conservar fetching");
         assert!(out.contains("retrieved"), "debe conservar retrieved");
-        assert!(!out.contains("testing connection"), "debe eliminar ruido de conexión");
+        assert!(
+            !out.contains("testing connection"),
+            "debe eliminar ruido de conexión"
+        );
         assert!(!out.contains("WAF/IPS"), "debe eliminar ruido de WAF check");
     }
 

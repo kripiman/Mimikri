@@ -3,9 +3,9 @@ pub mod scope_syncer;
 use chrono::Timelike;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 struct PolicyJson {
@@ -23,7 +23,7 @@ pub struct EscalationContact {
     pub name: String,
     pub role: String,
     pub channel: String,
-    pub available: String,  // "24/7", "Mon-Fri 09:00-18:00"
+    pub available: String, // "24/7", "Mon-Fri 09:00-18:00"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,7 +40,7 @@ pub struct RoE {
     pub client: String,
     pub start_date: String,
     pub end_date: String,
-    pub testing_window: String,         // "Mon-Fri 09:00-18:00 UTC"
+    pub testing_window: String, // "Mon-Fri 09:00-18:00 UTC"
     pub in_scope: Vec<ScopeTarget>,
     pub out_of_scope: Vec<ScopeTarget>,
     pub prohibited_actions: Vec<String>,
@@ -56,10 +56,10 @@ pub struct RoE {
 pub trait PolicyProvider: Send + Sync {
     /// Validates if a binary and its arguments are allowed under current ROE.
     fn validate_command(&self, binary: &str, args: &[String]) -> Result<()>;
-    
+
     /// Checks if a path or URL sub-component is safe (SSRF, Path Traversal).
     fn is_path_safe(&self, path: &str) -> bool;
-    
+
     /// Checks if a hostname or IP is within the authorized scope (Placeholder for future ScopeProvider integration).
     fn is_target_allowed(&self, target: &str) -> bool;
 
@@ -95,26 +95,41 @@ impl ReloadablePolicy {
                 *lock = new_policy;
                 tracing::info!("🛡️ V14.6 POLICY: Reload successful.");
             }
-            Err(e) => tracing::error!("❌ V14.6 POLICY: Failed to acquire write lock for reload: {}", e),
+            Err(e) => tracing::error!(
+                "❌ V14.6 POLICY: Failed to acquire write lock for reload: {}",
+                e
+            ),
         }
     }
 }
 
 impl PolicyProvider for ReloadablePolicy {
     fn validate_command(&self, binary: &str, args: &[String]) -> Result<()> {
-        self.inner.read().map_err(|e| anyhow::anyhow!("Poisoned lock: {}", e))?.validate_command(binary, args)
+        self.inner
+            .read()
+            .map_err(|e| anyhow::anyhow!("Poisoned lock: {}", e))?
+            .validate_command(binary, args)
     }
 
     fn is_path_safe(&self, path: &str) -> bool {
-        self.inner.read().map(|p| p.is_path_safe(path)).unwrap_or(false)
+        self.inner
+            .read()
+            .map(|p| p.is_path_safe(path))
+            .unwrap_or(false)
     }
 
     fn is_target_allowed(&self, target: &str) -> bool {
-        self.inner.read().map(|p| p.is_target_allowed(target)).unwrap_or(false)
+        self.inner
+            .read()
+            .map(|p| p.is_target_allowed(target))
+            .unwrap_or(false)
     }
 
     fn is_within_testing_window(&self) -> bool {
-        self.inner.read().map(|p| p.is_within_testing_window()).unwrap_or(true)
+        self.inner
+            .read()
+            .map(|p| p.is_within_testing_window())
+            .unwrap_or(true)
     }
 
     fn get_roe(&self) -> Option<RoE> {
@@ -144,20 +159,68 @@ impl StaticPolicy {
 
     pub fn from_file(path: Option<&str>) -> Self {
         let allowed_binaries = vec![
-            "curl", "nmap", "ping", "dig", "nc", "ssh", "which",
-            "apktool", "jadx", "apkleaks", "drozer",
-            "syft", "grype", "cosign",
-            "whatweb", "ffuf", "inql", "graphw00f", "crackql", "schemathesis",
-            "katana", "nuclei", "interactsh-client", "amass", "subfinder",
-            "httpx", "ppmap", "corsy", "linkfinder", "secretfinder", "jsluice",
-            "snallygaster", "wpsec", "tsunami", "crlfuzz", "arjun", "x8",
-        ].into_iter().map(String::from).collect();
-            
+            "curl",
+            "nmap",
+            "ping",
+            "dig",
+            "nc",
+            "ssh",
+            "which",
+            "apktool",
+            "jadx",
+            "apkleaks",
+            "drozer",
+            "syft",
+            "grype",
+            "cosign",
+            "whatweb",
+            "ffuf",
+            "inql",
+            "graphw00f",
+            "crackql",
+            "schemathesis",
+            "katana",
+            "nuclei",
+            "interactsh-client",
+            "amass",
+            "subfinder",
+            "httpx",
+            "ppmap",
+            "corsy",
+            "linkfinder",
+            "secretfinder",
+            "jsluice",
+            "snallygaster",
+            "wpsec",
+            "tsunami",
+            "crlfuzz",
+            "arjun",
+            "x8",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
         let allowed_nmap_flags = vec![
-            "-sV", "-Pn", "-n", "--open", "--version-light", 
-            "-sS", "-F", "--reason", "-T4", "-A", "-sC", "-p-",
-            "--min-rate", "--max-retries", "-O"
-        ].into_iter().map(String::from).collect();
+            "-sV",
+            "-Pn",
+            "-n",
+            "--open",
+            "--version-light",
+            "-sS",
+            "-F",
+            "--reason",
+            "-T4",
+            "-A",
+            "-sC",
+            "-p-",
+            "--min-rate",
+            "--max-retries",
+            "-O",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
 
         let mut in_scope_patterns = Vec::new();
         let mut allowed_roots = HashSet::new();
@@ -179,20 +242,21 @@ impl StaticPolicy {
                 if let Ok(policy) = serde_json::from_str::<PolicyJson>(&content) {
                     for entry in policy.in_scope {
                         let target = entry.target.trim();
-                        
+
                         // Phase C: If the target is a domain/wildcard-domain, extract the PSL root
                         let domain_str = target.trim_start_matches("*.");
                         if let Ok(domain) = addr::parse_domain_name(domain_str) {
                             if let Some(root) = domain.root() {
-                                tracing::info!("🛡️ V14.2 SCOPE: Adding PSL authorized root: {}", root);
+                                tracing::info!(
+                                    "🛡️ V14.2 SCOPE: Adding PSL authorized root: {}",
+                                    root
+                                );
                                 allowed_roots.insert(root.to_string());
                             }
                         }
 
                         // Fallback/Legacy: Regex for complex patterns or IPs
-                        let pattern = target
-                            .replace(".", "\\.")
-                            .replace("*", ".*");
+                        let pattern = target.replace(".", "\\.").replace("*", ".*");
                         if let Ok(re) = Regex::new(&format!("^{}$", pattern)) {
                             in_scope_patterns.push(re);
                         }
@@ -200,7 +264,10 @@ impl StaticPolicy {
                 }
             }
         } else if path.is_some() {
-            tracing::error!("❌ V14.2 SCOPE: Specified policy file {:?} NOT FOUND!", policy_path);
+            tracing::error!(
+                "❌ V14.2 SCOPE: Specified policy file {:?} NOT FOUND!",
+                policy_path
+            );
         }
 
         // V14.5: Load RoE from workspace/plan/roe.json
@@ -209,7 +276,10 @@ impl StaticPolicy {
         if roe_path.exists() {
             if let Ok(content) = std::fs::read_to_string(roe_path) {
                 if let Ok(parsed_roe) = serde_json::from_str::<RoE>(&content) {
-                    tracing::info!("🛡️ V14.5 ROE: Loaded rules of engagement for {}", parsed_roe.engagement_name);
+                    tracing::info!(
+                        "🛡️ V14.5 ROE: Loaded rules of engagement for {}",
+                        parsed_roe.engagement_name
+                    );
                     roe = Some(parsed_roe);
                 }
             }
@@ -230,7 +300,8 @@ impl StaticPolicy {
     }
 }
 
-static PATH_SAFE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z0-9\-\._/~%\?&=+]+$").unwrap());
+static PATH_SAFE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[a-zA-Z0-9\-\._/~%\?&=+]+$").unwrap());
 
 impl PolicyProvider for StaticPolicy {
     fn validate_command(&self, binary: &str, args: &[String]) -> Result<()> {
@@ -250,20 +321,23 @@ impl PolicyProvider for StaticPolicy {
                     let _flag = if arg.len() >= 2 && !arg.starts_with("--") {
                         &arg[0..2]
                     } else if arg.contains('=') {
-                         arg.split('=').next().unwrap_or(arg)
+                        arg.split('=').next().unwrap_or(arg)
                     } else {
                         arg.as_str()
                     };
 
                     // Some flags like -p, -T4, -D are allowed even if they have attached data
-                    let is_allowed = self.allowed_nmap_flags.contains(arg) 
-                        || arg.starts_with("-p") 
+                    let is_allowed = self.allowed_nmap_flags.contains(arg)
+                        || arg.starts_with("-p")
                         || arg.starts_with("-T")
                         || arg.starts_with("-D")
                         || arg.starts_with("--min-rate");
 
                     if !is_allowed {
-                         anyhow::bail!("V14.1 Policy Violation: Nmap flag '{}' is not authorized.", arg);
+                        anyhow::bail!(
+                            "V14.1 Policy Violation: Nmap flag '{}' is not authorized.",
+                            arg
+                        );
                     }
                 }
             }
@@ -304,7 +378,10 @@ impl PolicyProvider for StaticPolicy {
             }
         }
 
-        tracing::warn!("V14.2 SCOPE VIOLATION: Target '{}' is NOT in scope!", target);
+        tracing::warn!(
+            "V14.2 SCOPE VIOLATION: Target '{}' is NOT in scope!",
+            target
+        );
         false
     }
 

@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
-use tokio::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
+use tracing::info;
 
 pub struct WPScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for WPScanner {
 impl WPScanner {
     pub fn new() -> Self {
         let path = detect_tool("wpscan");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -61,18 +59,25 @@ impl ScannerPlugin for WPScanner {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         // V13 HARDENING: Mandatory DNS Pinning (ResolvedIP)
-        let pinned_ip = target.pinned_addr()
+        let pinned_ip = target
+            .pinned_addr()
             .context("DNS Pinning Violation: WPScanner requires a resolved and pinned IP.")?;
-            
-        info!("WPScanner: launching scan against {} (Pinned: {})", target.host, pinned_ip);
+
+        info!(
+            "WPScanner: launching scan against {} (Pinned: {})",
+            target.host, pinned_ip
+        );
 
         let url = format!("http://{}", pinned_ip);
         let _host_header = format!("Host: {}", target.host);
 
         let child = Command::new(&self.binary_path)
-            .arg("--url").arg(&url)
-            .arg("--custom-headers").arg(serde_json::json!({"Host": target.host}).to_string())
-            .arg("--format").arg("json")
+            .arg("--url")
+            .arg(&url)
+            .arg("--custom-headers")
+            .arg(serde_json::json!({"Host": target.host}).to_string())
+            .arg("--format")
+            .arg("json")
             .arg("--no-banner")
             .arg("--stealthy")
             .stdin(Stdio::null())
@@ -81,7 +86,10 @@ impl ScannerPlugin for WPScanner {
             .spawn()
             .context("Failed to spawn wpscan")?;
 
-        let output = child.wait_with_output().await.context("Failed to wait for wpscan")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed to wait for wpscan")?;
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         let mut findings = Vec::new();
@@ -96,12 +104,12 @@ impl ScannerPlugin for WPScanner {
                             Category::Vulnerability,
                             Severity::High,
                             v["title"].as_str().unwrap_or("WP Core Vulnerability"),
-                            v.clone()
+                            v.clone(),
                         ));
                     }
                 }
             }
-            
+
             if let Some(plugins) = json["plugins"].as_object() {
                 for (name, data) in plugins {
                     if let Some(vulns) = data["vulnerabilities"].as_array() {
@@ -111,7 +119,7 @@ impl ScannerPlugin for WPScanner {
                                 Category::Vulnerability,
                                 Severity::High,
                                 v["title"].as_str().unwrap_or("Plugin Vulnerability"),
-                                v.clone()
+                                v.clone(),
                             ));
                         }
                     }

@@ -1,13 +1,13 @@
-use crate::models::{Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity};
 use std::fmt::Write;
 
 pub(super) fn severity_label(s: &Severity) -> &'static str {
     match s {
         Severity::Critical => "Critical (P1)",
-        Severity::High     => "High (P2)",
-        Severity::Medium   => "Medium (P3)",
-        Severity::Low      => "Low (P4)",
-        Severity::Info     => "Informational (P5)",
+        Severity::High => "High (P2)",
+        Severity::Medium => "Medium (P3)",
+        Severity::Low => "Low (P4)",
+        Severity::Info => "Informational (P5)",
     }
 }
 
@@ -39,8 +39,12 @@ pub(super) struct HttpEvidence<'a> {
 pub(super) fn http_evidence_view(finding: &Finding) -> HttpEvidence<'_> {
     let data = finding.evidence.primary.as_ref().map(|e| &e.data);
     HttpEvidence {
-        raw_request: data.and_then(|d| d.get("raw_request")).and_then(|v| v.as_str()),
-        raw_response: data.and_then(|d| d.get("raw_response")).and_then(|v| v.as_str()),
+        raw_request: data
+            .and_then(|d| d.get("raw_request"))
+            .and_then(|v| v.as_str()),
+        raw_response: data
+            .and_then(|d| d.get("raw_response"))
+            .and_then(|v| v.as_str()),
     }
 }
 
@@ -49,10 +53,10 @@ pub(super) fn build_curl_from_raw(raw: &str, default_host: &str) -> Option<Strin
     let mut lines = raw.lines();
     let first_line = lines.next()?;
     let mut parts = first_line.split_whitespace();
-    
+
     let method = parts.next()?;
     let path = parts.next()?;
-    
+
     let mut headers = Vec::new();
     let mut host = default_host.to_string();
     let mut body = String::new();
@@ -89,7 +93,7 @@ pub(super) fn build_curl_from_raw(raw: &str, default_host: &str) -> Option<Strin
     };
 
     let mut curl = format!("curl -i -s -k -X {}", method);
-    
+
     for (k, v) in headers {
         let _ = write!(curl, " \\\n  -H \"{}: {}\"", k, v.replace('\"', "\\\""));
     }

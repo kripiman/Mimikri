@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use crate::utils::tool_detection::detect_tool;
 use crate::models::constants::*;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
+use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, error};
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{error, info};
 
 pub struct GraphW00fScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for GraphW00fScanner {
 impl GraphW00fScanner {
     pub fn new() -> Self {
         let path = detect_tool("graphw00f");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -36,7 +34,9 @@ impl ScannerPlugin for GraphW00fScanner {
     fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
-            description: "GraphQL fingerprinting tool to identify GraphQL engine and sensitive endpoints.".to_string(),
+            description:
+                "GraphQL fingerprinting tool to identify GraphQL engine and sensitive endpoints."
+                    .to_string(),
             target_type: crate::plugins::TargetType::Web,
             risk_level: crate::plugins::RiskLevel::Low,
             layer: crate::core::capability_layer::ScanLayer::Scanning,
@@ -48,7 +48,9 @@ impl ScannerPlugin for GraphW00fScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Low,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -60,11 +62,16 @@ impl ScannerPlugin for GraphW00fScanner {
     }
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("GraphW00fScanner: fingerprinting GraphQL for {}", target.host);
+        info!(
+            "GraphW00fScanner: fingerprinting GraphQL for {}",
+            target.host
+        );
 
         let mut findings = Vec::new();
-        
-        let target_url = target.extra_data.get("api_schema_url")
+
+        let target_url = target
+            .extra_data
+            .get("api_schema_url")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("https://{}", target.host)); // Default to https
@@ -80,11 +87,18 @@ impl ScannerPlugin for GraphW00fScanner {
 
         match child {
             Ok(c) => {
-                let output = c.wait_with_output().await.context("Failed to wait for graphw00f")?;
+                let output = c
+                    .wait_with_output()
+                    .await
+                    .context("Failed to wait for graphw00f")?;
                 let content = String::from_utf8_lossy(&output.stdout);
                 let content_lower = content.to_lowercase();
-                
-                if output.status.success() && (content_lower.contains("found") || content_lower.contains("engine") || content_lower.contains("technology")) {
+
+                if output.status.success()
+                    && (content_lower.contains("found")
+                        || content_lower.contains("engine")
+                        || content_lower.contains("technology"))
+                {
                     findings.push(Finding::new(
                         FINDING_GRAPHQL_FINGERPRINT,
                         Category::TechnologyStack,
@@ -94,7 +108,7 @@ impl ScannerPlugin for GraphW00fScanner {
                             "url": target_url,
                             "raw_output": content.trim(),
                             "tool": "graphw00f"
-                        })
+                        }),
                     ));
                 }
             }

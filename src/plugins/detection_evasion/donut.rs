@@ -1,11 +1,11 @@
 #[cfg(feature = "sovereign")]
-use crate::plugins::{ScannerPlugin, PluginMetadata, Capability, RiskLevel};
+use crate::models::{Finding, TargetHost};
 #[cfg(feature = "sovereign")]
-use crate::models::{TargetHost, Finding};
-#[cfg(feature = "sovereign")]
-use async_trait::async_trait;
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
 #[cfg(feature = "sovereign")]
 use anyhow::Result;
+#[cfg(feature = "sovereign")]
+use async_trait::async_trait;
 
 #[cfg(feature = "sovereign")]
 pub struct DonutScanner;
@@ -13,7 +13,9 @@ pub struct DonutScanner;
 #[cfg(feature = "sovereign")]
 #[async_trait]
 impl ScannerPlugin for DonutScanner {
-    fn name(&self) -> &'static str { "donut" }
+    fn name(&self) -> &'static str {
+        "donut"
+    }
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: "Donut".to_string(),
@@ -28,7 +30,7 @@ impl ScannerPlugin for DonutScanner {
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::Evasion]
     }
-    
+
     async fn check_dependencies(&self) -> Result<bool> {
         Ok(crate::utils::tool_detection::check_tool_availability("donut").await)
     }

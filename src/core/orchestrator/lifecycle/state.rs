@@ -1,9 +1,9 @@
-use crate::models::{TargetHost, Finding};
-use crate::plugins::ScannerPlugin;
-use std::sync::Arc;
-use crate::core::capability_layer::ScanLayerPolicy;
 use crate::core::approval_gate::ApprovalGate;
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
+use crate::core::capability_layer::ScanLayerPolicy;
+use crate::models::{Finding, TargetHost};
+use crate::plugins::ScannerPlugin;
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
+use std::sync::Arc;
 
 pub struct Orchestrator<M: ExecutorMode> {
     pub plugins: Arc<Vec<Box<dyn ScannerPlugin>>>,

@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use super::router::TieredAIRouter;
+use super::types::{CavemanLevel, RouteLevel};
+use crate::models::{Finding, TargetHost};
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use std::hash::{Hash, Hasher};
-use crate::models::{Finding, TargetHost};
-use super::types::{RouteLevel, CavemanLevel};
-use super::router::TieredAIRouter;
 
 pub struct AiMutationRequest {
     pub payload: String,
@@ -40,13 +40,23 @@ impl LshPayloadCache {
             ngram.hash(&mut hasher);
             let hash = hasher.finish();
             for (i, v_val) in v.iter_mut().enumerate() {
-                if (hash >> i) & 1 == 1 { *v_val += 1; }
-                else { *v_val -= 1; }
+                if (hash >> i) & 1 == 1 {
+                    *v_val += 1;
+                } else {
+                    *v_val -= 1;
+                }
             }
         }
-        v.iter().enumerate().fold(0u64, |acc, (i, &val)| {
-            if val > 0 { acc | (1 << i) } else { acc }
-        })
+        v.iter().enumerate().fold(
+            0u64,
+            |acc, (i, &val)| {
+                if val > 0 {
+                    acc | (1 << i)
+                } else {
+                    acc
+                }
+            },
+        )
     }
 
     pub fn hamming_distance(a: u64, b: u64) -> u32 {
@@ -122,7 +132,12 @@ impl OffPathAiEngine {
 
     /// Background path: enqueue for async AI analysis (training the LSH cache).
     /// Returns cached mutation immediately if available, otherwise enqueues and returns None.
-    pub async fn get_mutation_or_enqueue(&self, payload: &str, finding: Finding, target: TargetHost) -> Option<String> {
+    pub async fn get_mutation_or_enqueue(
+        &self,
+        payload: &str,
+        finding: Finding,
+        target: TargetHost,
+    ) -> Option<String> {
         if let Some(cached) = self.cache.find_similar_mutation(payload) {
             return Some(cached);
         }
@@ -134,7 +149,7 @@ impl OffPathAiEngine {
             finding,
             target,
         });
-        
+
         None // Fallback to immediate non-AI strategy
     }
 
@@ -182,7 +197,7 @@ impl OffPathAiEngine {
 mod tests {
     use super::*;
     use crate::core::ai::router::TieredAIRouter;
-    use crate::models::{Finding, TargetHost, Category, Severity};
+    use crate::models::{Category, Finding, Severity, TargetHost};
     use std::sync::atomic::Ordering;
 
     fn dummy_router() -> Arc<TieredAIRouter> {
@@ -205,17 +220,25 @@ mod tests {
         let engine = OffPathAiEngine::new(dummy_router(), 1);
 
         let payload = "SELECT * FROM users WHERE id=1";
-        engine.cache.insert_mutation(payload, "SELECT/**/1/**/FROM/**/users".to_string());
+        engine
+            .cache
+            .insert_mutation(payload, "SELECT/**/1/**/FROM/**/users".to_string());
 
-        let result = engine.get_mutation_realtime(
-            payload,
-            dummy_finding(),
-            TargetHost::default(),
-        ).await;
+        let result = engine
+            .get_mutation_realtime(payload, dummy_finding(), TargetHost::default())
+            .await;
 
         assert!(result.is_some(), "Expected cached mutation to be returned");
-        assert_eq!(engine.lsh_cache_hits.load(Ordering::SeqCst), 1, "Expected 1 LSH hit");
-        assert_eq!(engine.ai_inference_count.load(Ordering::SeqCst), 0, "Expected 0 AI calls on cache hit");
+        assert_eq!(
+            engine.lsh_cache_hits.load(Ordering::SeqCst),
+            1,
+            "Expected 1 LSH hit"
+        );
+        assert_eq!(
+            engine.ai_inference_count.load(Ordering::SeqCst),
+            0,
+            "Expected 0 AI calls on cache hit"
+        );
     }
 
     /// Cache miss + no providers → get_mutation_realtime returns None, increments ai_inference_count
@@ -224,15 +247,21 @@ mod tests {
         let engine = OffPathAiEngine::new(dummy_router(), 1); // no providers → Err immediately
 
         let payload = "'; DROP TABLE sessions;--";
-        let result = engine.get_mutation_realtime(
-            payload,
-            dummy_finding(),
-            TargetHost::default(),
-        ).await;
+        let result = engine
+            .get_mutation_realtime(payload, dummy_finding(), TargetHost::default())
+            .await;
 
         assert!(result.is_none(), "Expected None when inference fails");
-        assert_eq!(engine.lsh_cache_hits.load(Ordering::SeqCst), 0, "Expected 0 LSH hits");
-        assert_eq!(engine.ai_inference_count.load(Ordering::SeqCst), 1, "Expected 1 AI inference attempt");
+        assert_eq!(
+            engine.lsh_cache_hits.load(Ordering::SeqCst),
+            0,
+            "Expected 0 LSH hits"
+        );
+        assert_eq!(
+            engine.ai_inference_count.load(Ordering::SeqCst),
+            1,
+            "Expected 1 AI inference attempt"
+        );
     }
 
     /// Timeout guard: fast-fail path (no providers) completes well under 2500ms
@@ -242,12 +271,15 @@ mod tests {
         let payload = "unique_payload_not_in_cache_xyz987";
 
         let start = std::time::Instant::now();
-        let _ = engine.get_mutation_realtime(payload, dummy_finding(), TargetHost::default()).await;
+        let _ = engine
+            .get_mutation_realtime(payload, dummy_finding(), TargetHost::default())
+            .await;
         let elapsed = start.elapsed();
 
         assert!(
             elapsed.as_millis() < 2500,
-            "get_mutation_realtime fast-fail took {}ms, expected < 2500ms", elapsed.as_millis()
+            "get_mutation_realtime fast-fail took {}ms, expected < 2500ms",
+            elapsed.as_millis()
         );
     }
 }

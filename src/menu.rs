@@ -1,15 +1,15 @@
 use crate::boot::cli::Args;
 use anyhow::Result;
-use inquire::{Text, Confirm, MultiSelect, validator::Validation};
+use inquire::{validator::Validation, Confirm, MultiSelect, Text};
 
 pub fn show_menu() -> Result<Option<Args>> {
     println!("🛡️  Bienvenido a MIMIKRI v4.0 - Unified Wizard");
     println!("=================================================\n");
-    
+
     let target = Text::new("🎯 Introduce el objetivo (ej. example.com o targets.txt):")
         .with_help_message("Dominio base, IP o ruta local a un archivo de targets")
         .prompt()?;
-        
+
     if target.trim().is_empty() {
         println!("❌ El objetivo no puede estar vacío.");
         return Ok(None);
@@ -18,7 +18,7 @@ pub fn show_menu() -> Result<Option<Args>> {
     let is_mobile = Confirm::new("📱 ¿Es una auditoría de aplicación móvil (APK/IPA)?")
         .with_default(false)
         .prompt()?;
-    
+
     // Default struct parameters
     let mut args = Args {
         target: None,
@@ -63,7 +63,7 @@ pub fn show_menu() -> Result<Option<Args>> {
     let scope_id = Text::new("🆔 Introduce el Scope ID (opcional, para aislamiento):")
         .with_help_message("Dejar vacío para el scope por defecto")
         .prompt()?;
-    
+
     if !scope_id.trim().is_empty() {
         args.scope_id = Some(scope_id);
     }
@@ -75,7 +75,7 @@ pub fn show_menu() -> Result<Option<Args>> {
     } else {
         args.target = Some(target);
     }
-    
+
     let features = vec![
         "🕵️  Discovery & OSINT (Reconocimiento pasivo/DNS)",
         "🥷  Modo Sigilo (Evasión P1/P2, Jitter real, Fragmentación)",
@@ -86,25 +86,34 @@ pub fn show_menu() -> Result<Option<Args>> {
         "🛡️  Hardening & Compliance (Trivy, Kubescape, Gitleaks)",
     ];
 
-    let selected_features = MultiSelect::new("⚙️  Selecciona las capacidades para este operativo (espacio para marcar):", features.clone())
-        .with_validator(|selected: &[inquire::list_option::ListOption<&&str>]| {
-            let has_stealth = selected.iter().any(|f| f.value.contains("Sigilo"));
-            let has_aggressive = selected.iter().any(|f| f.value.contains("Agresivo"));
-            if has_stealth && has_aggressive {
-                Ok(Validation::Invalid("No puedes combinar 'Sigilo' y 'Agresivo' en una misma misión.".into()))
-            } else if selected.is_empty() {
-                Ok(Validation::Invalid("Debes seleccionar al menos una capacidad.".into()))
-            } else {
-                Ok(Validation::Valid)
-            }
-        })
-        .prompt()?;
+    let selected_features = MultiSelect::new(
+        "⚙️  Selecciona las capacidades para este operativo (espacio para marcar):",
+        features.clone(),
+    )
+    .with_validator(|selected: &[inquire::list_option::ListOption<&&str>]| {
+        let has_stealth = selected.iter().any(|f| f.value.contains("Sigilo"));
+        let has_aggressive = selected.iter().any(|f| f.value.contains("Agresivo"));
+        if has_stealth && has_aggressive {
+            Ok(Validation::Invalid(
+                "No puedes combinar 'Sigilo' y 'Agresivo' en una misma misión.".into(),
+            ))
+        } else if selected.is_empty() {
+            Ok(Validation::Invalid(
+                "Debes seleccionar al menos una capacidad.".into(),
+            ))
+        } else {
+            Ok(Validation::Valid)
+        }
+    })
+    .prompt()?;
 
     for feature in selected_features {
         if feature == features[0] {
             // Discovery
             args.doh = true;
-            if args.max_layer == "Scanning" { args.max_layer = "Discovery".to_string(); }
+            if args.max_layer == "Scanning" {
+                args.max_layer = "Discovery".to_string();
+            }
         } else if feature == features[1] {
             // Stealth
             args.stealth = true;
@@ -116,7 +125,9 @@ pub fn show_menu() -> Result<Option<Args>> {
             // Vuln Scan
             args.vuln_scan = true;
             args.service_detection = true;
-            if args.concurrency < 50 { args.concurrency = 50; }
+            if args.concurrency < 50 {
+                args.concurrency = 50;
+            }
         } else if feature == features[3] {
             // Autonomous
             args.autonomous = true;
@@ -138,21 +149,31 @@ pub fn show_menu() -> Result<Option<Args>> {
     }
 
     // Configuración de infraestructura si es necesario
-    if args.stealth || Confirm::new("¿Deseas configurar proxies o DNS personalizados?").with_default(false).prompt()? {
+    if args.stealth
+        || Confirm::new("¿Deseas configurar proxies o DNS personalizados?")
+            .with_default(false)
+            .prompt()?
+    {
         let use_proxies = Confirm::new("🔄 ¿Configurar Proxies rotativos (http/socks5)?")
             .with_default(args.stealth)
             .prompt()?;
-            
+
         if use_proxies {
-            let px = Text::new("   Lista de proxies (ej: socks5://127.0.0.1:9050,http://proxy:8080):")
-                .prompt()?;
+            let px =
+                Text::new("   Lista de proxies (ej: socks5://127.0.0.1:9050,http://proxy:8080):")
+                    .prompt()?;
             if !px.trim().is_empty() {
                 args.proxies = Some(px);
             }
         }
-        
-        if Confirm::new("🌐 ¿Configurar DNS personalizados / DoH?").with_default(args.doh).prompt()? {
-            args.doh = Confirm::new("   ¿Usar DNS over HTTPS (DoH)?").with_default(args.doh).prompt()?;
+
+        if Confirm::new("🌐 ¿Configurar DNS personalizados / DoH?")
+            .with_default(args.doh)
+            .prompt()?
+        {
+            args.doh = Confirm::new("   ¿Usar DNS over HTTPS (DoH)?")
+                .with_default(args.doh)
+                .prompt()?;
             let dns = Text::new("   Servidores DNS (separados por coma, opcional):").prompt()?;
             if !dns.trim().is_empty() {
                 args.dns_servers = Some(dns);
@@ -162,14 +183,23 @@ pub fn show_menu() -> Result<Option<Args>> {
 
     let mut summary = format!(
         "\n✅ Misión configurada:\n - Objetivo: {}\n",
-        if is_mobile { args.apk.as_ref().unwrap() } else { args.target.as_ref().unwrap() }
+        if is_mobile {
+            args.apk.as_ref().unwrap()
+        } else {
+            args.target.as_ref().unwrap()
+        }
     );
-    summary.push_str(&format!(" - Capas: {}\n - Concurrencia: {}\n - IA Autónoma: {}\n - Sigilo: {}\n",
-        args.max_layer, args.concurrency, args.autonomous, args.stealth));
+    summary.push_str(&format!(
+        " - Capas: {}\n - Concurrencia: {}\n - IA Autónoma: {}\n - Sigilo: {}\n",
+        args.max_layer, args.concurrency, args.autonomous, args.stealth
+    ));
 
     println!("{}", summary);
 
-    if Confirm::new("🚀 ¿Iniciar operativo ahora?").with_default(true).prompt()? {
+    if Confirm::new("🚀 ¿Iniciar operativo ahora?")
+        .with_default(true)
+        .prompt()?
+    {
         Ok(Some(args))
     } else {
         println!("🛑 Operativo cancelado.");

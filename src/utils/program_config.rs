@@ -1,8 +1,8 @@
 // src/utils/program_config.rs
 // 🎯 V14.2: Per-Program Configuration for Professional Bug Bounty
 
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use anyhow::{Result, Context};
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,8 +21,13 @@ impl ProgramConfig {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("Failed to read program config at {:?}", path.as_ref()))?;
-        
-        let config: ProgramConfig = if path.as_ref().extension().map(|e| e == "json").unwrap_or(false) {
+
+        let config: ProgramConfig = if path
+            .as_ref()
+            .extension()
+            .map(|e| e == "json")
+            .unwrap_or(false)
+        {
             serde_json::from_str(&content)?
         } else {
             // Assume TOML if not JSON (v14.2 preference)

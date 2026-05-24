@@ -1,11 +1,11 @@
-use crate::models::{Finding, Category, Severity};
-use anyhow::{Result, Context};
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use uuid::Uuid;
+use crate::models::{Category, Finding, Severity};
+use anyhow::{Context, Result};
 use regex::Regex;
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use tracing::info;
+use uuid::Uuid;
 
 pub struct SourceAnalyzer {
     pub root_dir: PathBuf,
@@ -33,7 +33,7 @@ impl SourceAnalyzer {
         fs::create_dir_all(&tmp_dir)?;
 
         info!("📂 SAST: Clonando repositorio {} en {:?}", url, tmp_dir);
-        
+
         let output = Command::new("git")
             .arg("clone")
             .arg("--depth")
@@ -67,7 +67,11 @@ impl SourceAnalyzer {
                 if path.is_dir() {
                     // Ignorar node_modules, .git, etc.
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if name == "node_modules" || name == ".git" || name == "venv" || name == "target" {
+                    if name == "node_modules"
+                        || name == ".git"
+                        || name == "venv"
+                        || name == "target"
+                    {
                         continue;
                     }
                     self.walk_dir(&path, results)?;
@@ -90,16 +94,21 @@ impl SourceAnalyzer {
 
     fn analyze_javascript(&self, path: &Path, results: &mut Vec<SourceFinding>) -> Result<()> {
         let content = fs::read_to_string(path)?;
-        
+
         // 1. ENDPOINTS (Express/Fastify patterns)
-        let re_routes = Regex::new(r#"\.(get|post|put|delete|patch|all)\s*\(\s*['"]([^'"]+)['"]"#).unwrap();
+        let re_routes =
+            Regex::new(r#"\.(get|post|put|delete|patch|all)\s*\(\s*['"]([^'"]+)['"]"#).unwrap();
         for (i, line) in content.lines().enumerate() {
             if let Some(cap) = re_routes.captures(line) {
                 results.push(SourceFinding {
                     file: path.to_string_lossy().to_string(),
                     line: i + 1,
                     snippet: line.trim().to_string(),
-                    description: format!("Endpoint Detectado: {} {}", cap[1].to_uppercase(), &cap[2]),
+                    description: format!(
+                        "Endpoint Detectado: {} {}",
+                        cap[1].to_uppercase(),
+                        &cap[2]
+                    ),
                     severity: Severity::Info,
                     is_endpoint: true,
                 });
@@ -108,10 +117,22 @@ impl SourceAnalyzer {
 
         // 2. SINKS (Dangerous functions)
         let sinks = [
-            (r#"eval\s*\("#, "Uso de eval() detectado (Riesgo de Inyección)"),
-            (r#"child_process\.exec\s*\("#, "Ejecución de comandos del sistema"),
-            (r#"dangerouslySetInnerHTML"#, "Renderizado de HTML crudo (Riesgo XSS)"),
-            (r#"req\.params|req\.query|req\.body"#, "Uso de entrada de usuario sin sanitizar visible")
+            (
+                r#"eval\s*\("#,
+                "Uso de eval() detectado (Riesgo de Inyección)",
+            ),
+            (
+                r#"child_process\.exec\s*\("#,
+                "Ejecución de comandos del sistema",
+            ),
+            (
+                r#"dangerouslySetInnerHTML"#,
+                "Renderizado de HTML crudo (Riesgo XSS)",
+            ),
+            (
+                r#"req\.params|req\.query|req\.body"#,
+                "Uso de entrada de usuario sin sanitizar visible",
+            ),
         ];
 
         for (pattern, desc) in sinks {
@@ -137,7 +158,9 @@ impl SourceAnalyzer {
         let content = fs::read_to_string(path)?;
 
         // 1. ENDPOINTS (Flask/Django/FastAPI)
-        let re_routes = Regex::new(r#"@(app|router|blueprint)\.(get|post|route)\s*\(['"]([^'"]+)['"]"#).unwrap();
+        let re_routes =
+            Regex::new(r#"@(app|router|blueprint)\.(get|post|route)\s*\(['"]([^'"]+)['"]"#)
+                .unwrap();
         for (i, line) in content.lines().enumerate() {
             if let Some(cap) = re_routes.captures(line) {
                 results.push(SourceFinding {
@@ -153,10 +176,19 @@ impl SourceAnalyzer {
 
         // 2. SINKS
         let sinks = [
-            (r#"os\.system\s*\(|subprocess\.call\s*\("#, "Ejecución de comandos del sistema"),
-            (r#"pickle\.load\s*\("#, "Uso de Pickle (Riesgo de Deserialización)"),
-            (r#"execute\s*\(\s*f['"]"#, "Posible Inyección SQL via F-Strings"),
-            (r#"yaml\.load\s*\("#, "Carga de YAML insegura")
+            (
+                r#"os\.system\s*\(|subprocess\.call\s*\("#,
+                "Ejecución de comandos del sistema",
+            ),
+            (
+                r#"pickle\.load\s*\("#,
+                "Uso de Pickle (Riesgo de Deserialización)",
+            ),
+            (
+                r#"execute\s*\(\s*f['"]"#,
+                "Posible Inyección SQL via F-Strings",
+            ),
+            (r#"yaml\.load\s*\("#, "Carga de YAML insegura"),
         ];
 
         for (pattern, desc) in sinks {
@@ -210,14 +242,21 @@ mod tests {
     async fn test_js_analysis() -> Result<()> {
         let dir = tempdir()?;
         let file_path = dir.path().join("test.js");
-        fs::write(&file_path, "app.get('/api/v1/test', (req, res) => { eval(req.query.id); });")?;
+        fs::write(
+            &file_path,
+            "app.get('/api/v1/test', (req, res) => { eval(req.query.id); });",
+        )?;
 
         let analyzer = SourceAnalyzer::new(dir.path().to_path_buf());
         let results = analyzer.analyze().await?;
 
-        assert!(results.iter().any(|r| r.is_endpoint && r.description.contains("/api/v1/test")));
-        assert!(results.iter().any(|r| !r.is_endpoint && r.description.contains("eval()")));
-        
+        assert!(results
+            .iter()
+            .any(|r| r.is_endpoint && r.description.contains("/api/v1/test")));
+        assert!(results
+            .iter()
+            .any(|r| !r.is_endpoint && r.description.contains("eval()")));
+
         Ok(())
     }
 
@@ -225,14 +264,21 @@ mod tests {
     async fn test_python_analysis() -> Result<()> {
         let dir = tempdir()?;
         let file_path = dir.path().join("app.py");
-        fs::write(&file_path, "@app.route('/login')\ndef login(): os.system(cmd)")?;
+        fs::write(
+            &file_path,
+            "@app.route('/login')\ndef login(): os.system(cmd)",
+        )?;
 
         let analyzer = SourceAnalyzer::new(dir.path().to_path_buf());
         let results = analyzer.analyze().await?;
 
-        assert!(results.iter().any(|r| r.is_endpoint && r.description.contains("/login")));
-        assert!(results.iter().any(|r| !r.is_endpoint && r.description.contains("comandos")));
-        
+        assert!(results
+            .iter()
+            .any(|r| r.is_endpoint && r.description.contains("/login")));
+        assert!(results
+            .iter()
+            .any(|r| !r.is_endpoint && r.description.contains("comandos")));
+
         Ok(())
     }
 }

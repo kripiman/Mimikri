@@ -40,7 +40,10 @@ impl CertStreamDaemon {
                         info!("CertStreamDaemon: stopping daemon as receiver is gone");
                         break;
                     }
-                    warn!("CertStreamDaemon: stream ended, reconnecting in {}s", backoff);
+                    warn!(
+                        "CertStreamDaemon: stream ended, reconnecting in {}s",
+                        backoff
+                    );
                 }
                 Err(e) => {
                     error!("CertStreamDaemon: connect error: {}", e);
@@ -53,7 +56,12 @@ impl CertStreamDaemon {
 
     async fn process_stream<S>(&self, mut ws: S) -> bool
     where
-        S: StreamExt<Item = Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+        S: StreamExt<
+                Item = Result<
+                    tokio_tungstenite::tungstenite::Message,
+                    tokio_tungstenite::tungstenite::Error,
+                >,
+            > + Unpin,
     {
         while let Some(msg_result) = ws.next().await {
             let msg = match msg_result {
@@ -85,9 +93,7 @@ impl CertStreamDaemon {
             return None;
         }
 
-        let all_domains = v
-            .pointer("/data/leaf_cert/all_domains")?
-            .as_array()?;
+        let all_domains = v.pointer("/data/leaf_cert/all_domains")?.as_array()?;
 
         let matches: Vec<String> = all_domains
             .iter()
@@ -101,6 +107,10 @@ impl CertStreamDaemon {
             .map(|d| d.trim_start_matches("*.").to_string())
             .collect();
 
-        if matches.is_empty() { None } else { Some(matches) }
+        if matches.is_empty() {
+            None
+        } else {
+            Some(matches)
+        }
     }
 }

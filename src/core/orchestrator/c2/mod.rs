@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use anyhow::Result;
 use crate::models::TargetHost;
+use anyhow::Result;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub mod sliver_proto;
@@ -39,16 +39,15 @@ pub struct InfrastructureConfig {
 
 #[async_trait]
 pub trait C2Operator: Send + Sync {
-    
     /// Prepare the payload (Staged state)
     async fn prepare_payload(&self, target: &TargetHost) -> Result<String>;
-    
+
     /// Deploy the payload (Deployed state - usually via another exploit)
     async fn deploy_payload(&self, target: &TargetHost, payload_path: &str) -> Result<()>;
-    
+
     /// Verify the session (Established/Sovereign state)
     async fn verify_session(&self, target: &TargetHost) -> Result<SessionState>;
-    
+
     /// Get active sessions
     async fn list_sessions(&self) -> Result<Vec<C2Session>>;
 }
@@ -88,11 +87,17 @@ pub mod typestate {
 
     impl SliverOperator<Staged> {
         pub fn new() -> Self {
-            Self { state: PhantomData, expected_fingerprint: None }
+            Self {
+                state: PhantomData,
+                expected_fingerprint: None,
+            }
         }
 
         pub fn deploy(self) -> SliverOperator<Deployed> {
-            SliverOperator { state: PhantomData, expected_fingerprint: self.expected_fingerprint }
+            SliverOperator {
+                state: PhantomData,
+                expected_fingerprint: self.expected_fingerprint,
+            }
         }
     }
 
@@ -104,11 +109,17 @@ pub mod typestate {
 
     impl SliverOperator<Deployed> {
         pub fn new() -> Self {
-            Self { state: PhantomData, expected_fingerprint: None }
+            Self {
+                state: PhantomData,
+                expected_fingerprint: None,
+            }
         }
 
         pub fn establish(self) -> SliverOperator<Established> {
-            SliverOperator { state: PhantomData, expected_fingerprint: self.expected_fingerprint }
+            SliverOperator {
+                state: PhantomData,
+                expected_fingerprint: self.expected_fingerprint,
+            }
         }
     }
 
@@ -120,15 +131,27 @@ pub mod typestate {
 
     impl SliverOperator<Established> {
         pub fn new() -> Self {
-            Self { state: PhantomData, expected_fingerprint: None }
+            Self {
+                state: PhantomData,
+                expected_fingerprint: None,
+            }
         }
 
-        pub fn promote(self, actual_fingerprint: &str) -> Result<SliverOperator<Sovereign>, String> {
+        pub fn promote(
+            self,
+            actual_fingerprint: &str,
+        ) -> Result<SliverOperator<Sovereign>, String> {
             if let Some(ref expected) = self.expected_fingerprint {
                 if expected == actual_fingerprint {
-                    Ok(SliverOperator { state: PhantomData, expected_fingerprint: self.expected_fingerprint })
+                    Ok(SliverOperator {
+                        state: PhantomData,
+                        expected_fingerprint: self.expected_fingerprint,
+                    })
                 } else {
-                    Err(format!("mTLS Fingerprint mismatch! Expected {}, got {}", expected, actual_fingerprint))
+                    Err(format!(
+                        "mTLS Fingerprint mismatch! Expected {}, got {}",
+                        expected, actual_fingerprint
+                    ))
                 }
             } else {
                 Err("No expected fingerprint configured for Sovereign promotion".to_string())
@@ -144,7 +167,10 @@ pub mod typestate {
 
     impl SliverOperator<Sovereign> {
         pub fn new() -> Self {
-            Self { state: PhantomData, expected_fingerprint: None }
+            Self {
+                state: PhantomData,
+                expected_fingerprint: None,
+            }
         }
     }
 
@@ -156,11 +182,17 @@ pub mod typestate {
 
     impl HavocOperator<Staged> {
         pub fn new() -> Self {
-            Self { state: PhantomData, expected_fingerprint: None }
+            Self {
+                state: PhantomData,
+                expected_fingerprint: None,
+            }
         }
 
         pub fn deploy(self) -> HavocOperator<Deployed> {
-            HavocOperator { state: PhantomData, expected_fingerprint: self.expected_fingerprint }
+            HavocOperator {
+                state: PhantomData,
+                expected_fingerprint: self.expected_fingerprint,
+            }
         }
     }
 
@@ -172,11 +204,17 @@ pub mod typestate {
 
     impl HavocOperator<Deployed> {
         pub fn new() -> Self {
-            Self { state: PhantomData, expected_fingerprint: None }
+            Self {
+                state: PhantomData,
+                expected_fingerprint: None,
+            }
         }
 
         pub fn establish(self) -> HavocOperator<Established> {
-            HavocOperator { state: PhantomData, expected_fingerprint: self.expected_fingerprint }
+            HavocOperator {
+                state: PhantomData,
+                expected_fingerprint: self.expected_fingerprint,
+            }
         }
     }
 
@@ -188,19 +226,31 @@ pub mod typestate {
 
     impl HavocOperator<Established> {
         pub fn new() -> Self {
-            Self { state: PhantomData, expected_fingerprint: None }
+            Self {
+                state: PhantomData,
+                expected_fingerprint: None,
+            }
         }
 
         pub fn promote(self, actual_fingerprint: &str) -> Result<HavocOperator<Sovereign>, String> {
             if let Some(ref expected) = self.expected_fingerprint {
                 if expected == actual_fingerprint {
-                    Ok(HavocOperator { state: PhantomData, expected_fingerprint: self.expected_fingerprint })
+                    Ok(HavocOperator {
+                        state: PhantomData,
+                        expected_fingerprint: self.expected_fingerprint,
+                    })
                 } else {
-                    Err(format!("Havoc mTLS Fingerprint mismatch! Expected {}, got {}", expected, actual_fingerprint))
+                    Err(format!(
+                        "Havoc mTLS Fingerprint mismatch! Expected {}, got {}",
+                        expected, actual_fingerprint
+                    ))
                 }
             } else {
                 // If no fingerprint is configured, we allow promotion but mark it as a policy choice
-                Ok(HavocOperator { state: PhantomData, expected_fingerprint: None })
+                Ok(HavocOperator {
+                    state: PhantomData,
+                    expected_fingerprint: None,
+                })
             }
         }
     }
@@ -213,7 +263,10 @@ pub mod typestate {
 
     impl HavocOperator<Sovereign> {
         pub fn new() -> Self {
-            Self { state: PhantomData, expected_fingerprint: None }
+            Self {
+                state: PhantomData,
+                expected_fingerprint: None,
+            }
         }
     }
 
@@ -237,19 +290,28 @@ mod tests {
             "sliver-key-path": "/etc/sliver/operator.key",
             "sliver-server-addr": "10.0.0.1:31337"
         }"#;
-        
+
         let config: InfrastructureConfig = serde_json::from_str(json_kebab).unwrap();
-        assert_eq!(config.sliver_ca_path, Some("/etc/sliver/ca.crt".to_string()));
-        assert_eq!(config.sliver_server_addr, Some("10.0.0.1:31337".to_string()));
+        assert_eq!(
+            config.sliver_ca_path,
+            Some("/etc/sliver/ca.crt".to_string())
+        );
+        assert_eq!(
+            config.sliver_server_addr,
+            Some("10.0.0.1:31337".to_string())
+        );
 
         // Test with short snake_case aliases
         let json_short = r#"{
             "sliver_ca": "/tmp/ca.crt",
             "sliver_addr": "localhost:31337"
         }"#;
-        
+
         let config_short: InfrastructureConfig = serde_json::from_str(json_short).unwrap();
         assert_eq!(config_short.sliver_ca_path, Some("/tmp/ca.crt".to_string()));
-        assert_eq!(config_short.sliver_server_addr, Some("localhost:31337".to_string()));
+        assert_eq!(
+            config_short.sliver_server_addr,
+            Some("localhost:31337".to_string())
+        );
     }
 }

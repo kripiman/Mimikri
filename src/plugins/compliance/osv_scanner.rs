@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category, TargetType};
+use crate::models::{Category, Finding, Severity, TargetHost, TargetType};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
 use anyhow::Result;
-use tracing::info;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use tokio::process::Command;
-use serde::{Deserialize, Serialize};
+use tracing::info;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct OSVResult {
@@ -54,9 +54,7 @@ impl Default for OSVScanner {
 impl OSVScanner {
     pub fn new() -> Self {
         let path = detect_tool("osv-scanner");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 
     async fn scan_api(&self, name: &str, version: &str, ecosystem: &str) -> Result<Vec<Finding>> {
@@ -69,7 +67,8 @@ impl OSVScanner {
             "version": version,
         });
 
-        let resp = client.post("https://api.osv.dev/v1/query")
+        let resp = client
+            .post("https://api.osv.dev/v1/query")
             .json(&payload)
             .send()
             .await?;
@@ -80,19 +79,28 @@ impl OSVScanner {
 
         let res: serde_json::Value = resp.json().await?;
         let mut findings = Vec::new();
-        
+
         if let Some(vulns) = res.get("vulns").and_then(|v| v.as_array()) {
             for vuln in vulns {
                 let id = vuln.get("id").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                let summary = vuln.get("summary").and_then(|v| v.as_str()).unwrap_or("No summary");
-                
-                findings.push(Finding::new(
-                    crate::models::FINDING_SCA_VULN,
-                    Category::SCA,
-                    Severity::High,
-                    &format!("OSV API: Vulnerability in {}@{}: {}", name, version, summary),
-                    vuln.clone()
-                ).with_references(vec![format!("https://osv.dev/vulnerability/{}", id)]));
+                let summary = vuln
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("No summary");
+
+                findings.push(
+                    Finding::new(
+                        crate::models::FINDING_SCA_VULN,
+                        Category::SCA,
+                        Severity::High,
+                        &format!(
+                            "OSV API: Vulnerability in {}@{}: {}",
+                            name, version, summary
+                        ),
+                        vuln.clone(),
+                    )
+                    .with_references(vec![format!("https://osv.dev/vulnerability/{}", id)]),
+                );
             }
         }
 
@@ -137,7 +145,7 @@ impl ScannerPlugin for OSVScanner {
 
         let mut findings = Vec::new();
         let target_path = std::path::Path::new(&target.host);
-        
+
         if !target_path.exists() {
             return Ok(findings);
         }
@@ -146,31 +154,41 @@ impl ScannerPlugin for OSVScanner {
         if crate::utils::check_tool_availability("osv-scanner").await {
             let mut cmd = Command::new(&self.binary_path);
             cmd.arg("-r") // recursive
-               .arg("--json")
-               .arg(&target.host)
-               .stdin(Stdio::null())
-               .stdout(Stdio::piped())
-               .stderr(Stdio::null());
+                .arg("--json")
+                .arg(&target.host)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
 
             if let Ok(output) = cmd.output().await {
                 if let Ok(res) = serde_json::from_slice::<OSVResult>(&output.stdout) {
                     for pkg_res in res.results {
                         for pkg in pkg_res.packages {
                             for vuln in pkg.vulnerabilities {
-                                findings.push(Finding::new(
-                                    crate::models::FINDING_SCA_VULN,
-                                    Category::SCA,
-                                    Severity::High,
-                                    &format!("OSV (Binary): {}@{} - {}", pkg.package.name, pkg.package.version, vuln.summary.as_deref().unwrap_or("No summary")),
-                                    serde_json::json!(vuln)
-                                ).with_references(vec![format!("https://osv.dev/vulnerability/{}", vuln.id)]));
+                                findings.push(
+                                    Finding::new(
+                                        crate::models::FINDING_SCA_VULN,
+                                        Category::SCA,
+                                        Severity::High,
+                                        &format!(
+                                            "OSV (Binary): {}@{} - {}",
+                                            pkg.package.name,
+                                            pkg.package.version,
+                                            vuln.summary.as_deref().unwrap_or("No summary")
+                                        ),
+                                        serde_json::json!(vuln),
+                                    )
+                                    .with_references(vec![
+                                        format!("https://osv.dev/vulnerability/{}", vuln.id),
+                                    ]),
+                                );
                             }
                         }
                     }
                 }
             }
-        } 
-        
+        }
+
         // 2. API Fallback (if binary failed or results empty)
         if findings.is_empty() {
             // Attempt to parse package.json for basic dependencies
@@ -180,9 +198,14 @@ impl ScannerPlugin for OSVScanner {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
                         if let Some(deps) = v.get("dependencies").and_then(|d| d.as_object()) {
                             for (name, version_req) in deps {
-                                let version = version_req.as_str().unwrap_or("").trim_start_matches(['^', '~']);
+                                let version = version_req
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .trim_start_matches(['^', '~']);
                                 if !version.is_empty() {
-                                    if let Ok(mut api_findings) = self.scan_api(name, version, "npm").await {
+                                    if let Ok(mut api_findings) =
+                                        self.scan_api(name, version, "npm").await
+                                    {
                                         findings.append(&mut api_findings);
                                     }
                                 }

@@ -49,6 +49,9 @@ impl Cvss40 {
     }
 
     pub fn to_vector_string(score: f32) -> String {
-        format!("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/Score:{}", score)
+        format!(
+            "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H/Score:{}",
+            score
+        )
     }
 }

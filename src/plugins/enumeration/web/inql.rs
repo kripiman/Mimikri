@@ -1,14 +1,14 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category};
 use crate::core::capability_layer::ScanLayer;
-use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
-use anyhow::Result;
-use tracing::{info, warn};
-use tokio::process::Command;
-use std::process::Stdio;
 use crate::models::constants::*;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
+use crate::utils::tool_detection::detect_tool;
+use anyhow::Result;
+use async_trait::async_trait;
 use std::collections::HashSet;
+use std::process::Stdio;
+use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct InQLScanner {
     binary_path: String,
@@ -23,9 +23,7 @@ impl Default for InQLScanner {
 impl InQLScanner {
     pub fn new() -> Self {
         let path = detect_tool("inql");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -38,7 +36,9 @@ impl ScannerPlugin for InQLScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "GraphQL introspection and analysis tool. Extracted schemas for deep API testing.".to_string(),
+            description:
+                "GraphQL introspection and analysis tool. Extracted schemas for deep API testing."
+                    .to_string(),
             target_type: TargetType::Web,
             risk_level: RiskLevel::Safe,
             layer: ScanLayer::Scanning,
@@ -50,7 +50,9 @@ impl ScannerPlugin for InQLScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("webapp".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -63,7 +65,7 @@ impl ScannerPlugin for InQLScanner {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("InQLScanner: scanning {}", target.host);
-        
+
         // 0. Fail-closed if binary missing
         if !self.check_dependencies().await.unwrap_or(false) {
             warn!("InQLScanner: inql binary not found. Skipping.");
@@ -71,29 +73,44 @@ impl ScannerPlugin for InQLScanner {
         }
 
         let mut findings = Vec::new();
-        
+
         // 1. Identify GraphQL endpoints from previous findings or defaults
-        let mut endpoints = vec!["/graphql".to_string(), "/gql".to_string(), "/api/graphql".to_string()];
-        
+        let mut endpoints = vec![
+            "/graphql".to_string(),
+            "/gql".to_string(),
+            "/api/graphql".to_string(),
+        ];
+
         for f in target.findings.iter() {
-             if let Some(ev) = &f.evidence.primary {
-                 // Check common keys from Katana, Jsluice, etc.
-                 for key in ["urls", "discovered_endpoints", "url", "uri", "endpoint", "path"] {
+            if let Some(ev) = &f.evidence.primary {
+                // Check common keys from Katana, Jsluice, etc.
+                for key in [
+                    "urls",
+                    "discovered_endpoints",
+                    "url",
+                    "uri",
+                    "endpoint",
+                    "path",
+                ] {
                     if let Some(val) = ev.data.get(key) {
                         if let Some(s) = val.as_str() {
-                            if is_graphql_candidate(s) { endpoints.push(s.to_string()); }
+                            if is_graphql_candidate(s) {
+                                endpoints.push(s.to_string());
+                            }
                         } else if let Some(arr) = val.as_array() {
                             for item in arr {
                                 if let Some(s) = item.as_str() {
-                                    if is_graphql_candidate(s) { endpoints.push(s.to_string()); }
+                                    if is_graphql_candidate(s) {
+                                        endpoints.push(s.to_string());
+                                    }
                                 }
                             }
                         }
                     }
-                 }
-             }
+                }
+            }
         }
-        
+
         // Add host itself if it's a candidate
         if is_graphql_candidate(&target.host) {
             endpoints.push(target.host.clone());
@@ -101,14 +118,15 @@ impl ScannerPlugin for InQLScanner {
 
         endpoints.sort();
         endpoints.dedup();
-        
+
         // Final sanity check: remove duplicate paths if they differ only by protocol/slashes
         let mut final_endpoints = Vec::new();
         let mut seen_paths = HashSet::new();
         for e in endpoints {
-            let path = e.trim_start_matches("http://")
-                        .trim_start_matches("https://")
-                        .trim_end_matches('/');
+            let path = e
+                .trim_start_matches("http://")
+                .trim_start_matches("https://")
+                .trim_end_matches('/');
             if seen_paths.insert(path.to_string()) {
                 final_endpoints.push(e);
             }
@@ -125,7 +143,15 @@ impl ScannerPlugin for InQLScanner {
             let target_url = if endpoint.starts_with("http") {
                 endpoint
             } else {
-                format!("{}{}", base_url.trim_end_matches('/'), if endpoint.starts_with('/') { endpoint } else { format!("/{}", endpoint) })
+                format!(
+                    "{}{}",
+                    base_url.trim_end_matches('/'),
+                    if endpoint.starts_with('/') {
+                        endpoint
+                    } else {
+                        format!("/{}", endpoint)
+                    }
+                )
             };
 
             info!("InQLScanner: analyzing {}", target_url);
@@ -138,17 +164,22 @@ impl ScannerPlugin for InQLScanner {
                     .stdin(Stdio::null())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
-                    .output()
-            ).await;
+                    .output(),
+            )
+            .await;
 
             match output_res {
                 Ok(Ok(output)) => {
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    
+
                     // InQL successful introspection indicators (v4/v5 precise check)
                     let stdout_lower = stdout.to_lowercase();
-                    if output.status.success() && (stdout_lower.contains("introspection") || stdout_lower.contains("schema") || stdout_lower.contains("writing")) {
-                         findings.push(Finding::new(
+                    if output.status.success()
+                        && (stdout_lower.contains("introspection")
+                            || stdout_lower.contains("schema")
+                            || stdout_lower.contains("writing"))
+                    {
+                        findings.push(Finding::new(
                             FINDING_GRAPHQL_INTROSPECTION,
                             Category::Recon,
                             Severity::Low,
@@ -160,7 +191,7 @@ impl ScannerPlugin for InQLScanner {
                             })
                         ).with_tactical_path("Disable introspection in production to prevent schema leakage. Use InQL or GraphQL-Cop for further mutation fuzzing."));
                     }
-                },
+                }
                 Ok(Err(e)) => warn!("InQLScanner error for {}: {}", target_url, e),
                 Err(_) => warn!("InQLScanner timeout for {}", target_url),
             }

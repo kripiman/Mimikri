@@ -1,6 +1,6 @@
-use tracing::warn;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use tracing::warn;
 
 #[derive(Debug, Default)]
 pub struct TokenBudget {
@@ -15,9 +15,9 @@ pub struct TokenBudget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskPriority {
-    High, // Planner
+    High,   // Planner
     Normal, // Exploiter
-    Low, // Scout/Reporter
+    Low,    // Scout/Reporter
 }
 
 impl TokenBudget {
@@ -36,9 +36,12 @@ impl TokenBudget {
     }
 
     pub fn add_usage(&self, usage: &crate::models::findings::TokenUsage) {
-        self.prompt_tokens.fetch_add(usage.prompt_tokens, Ordering::Relaxed);
-        self.completion_tokens.fetch_add(usage.completion_tokens, Ordering::Relaxed);
-        self.total_tokens.fetch_add(usage.total_tokens, Ordering::Relaxed);
+        self.prompt_tokens
+            .fetch_add(usage.prompt_tokens, Ordering::Relaxed);
+        self.completion_tokens
+            .fetch_add(usage.completion_tokens, Ordering::Relaxed);
+        self.total_tokens
+            .fetch_add(usage.total_tokens, Ordering::Relaxed);
     }
 
     /// V12 HARDENING: Race-condition safe reservation using atomic compare_exchange.
@@ -47,7 +50,7 @@ impl TokenBudget {
         let mut current_reserved = self.reserved_tokens.load(Ordering::SeqCst);
         loop {
             let total = self.total_tokens.load(Ordering::SeqCst);
-            
+
             // V13 HARDENING: Priority-based admission control with overflow check.
             // Professional safety: Low-priority tasks are throttled earlier to reserve space for critical analysis.
             let threshold = match priority {
@@ -57,7 +60,8 @@ impl TokenBudget {
             };
 
             // Safe overflow check: total + current_reserved + amount
-            let projected = total.checked_add(current_reserved)
+            let projected = total
+                .checked_add(current_reserved)
                 .and_then(|sum| sum.checked_add(amount));
 
             match projected {
@@ -87,7 +91,8 @@ impl TokenBudget {
     }
 
     pub fn is_exhausted(&self) -> bool {
-        (self.total_tokens.load(Ordering::SeqCst) + self.reserved_tokens.load(Ordering::SeqCst)) >= self.max_tokens
+        (self.total_tokens.load(Ordering::SeqCst) + self.reserved_tokens.load(Ordering::SeqCst))
+            >= self.max_tokens
     }
 
     pub fn current_total(&self) -> u32 {
@@ -110,14 +115,21 @@ impl TokenGuard {
     pub fn new(budget: Arc<TokenBudget>, amount: u32, priority: TaskPriority) -> Option<Self> {
         // V13 HARDENING: Enforce per-agent limits
         let safe_amount = if amount > budget.max_per_agent {
-            warn!("💸 SWARM: Requested tokens ({}) exceeds per-agent limit ({}). Capping.", amount, budget.max_per_agent);
+            warn!(
+                "💸 SWARM: Requested tokens ({}) exceeds per-agent limit ({}). Capping.",
+                amount, budget.max_per_agent
+            );
             budget.max_per_agent
         } else {
             amount
         };
 
         if budget.reserve_tokens(safe_amount, priority) {
-            Some(Self { budget, amount: safe_amount, active: true })
+            Some(Self {
+                budget,
+                amount: safe_amount,
+                active: true,
+            })
         } else {
             None
         }
@@ -132,7 +144,10 @@ impl TokenGuard {
 impl Drop for TokenGuard {
     fn drop(&mut self) {
         if self.active {
-            warn!("💸 SWARM: TokenGuard dropped without commitment. Releasing {} reserved tokens.", self.amount);
+            warn!(
+                "💸 SWARM: TokenGuard dropped without commitment. Releasing {} reserved tokens.",
+                self.amount
+            );
             self.budget.release_reservation(self.amount);
         }
     }

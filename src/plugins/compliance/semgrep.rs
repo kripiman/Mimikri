@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use crate::utils::tool_detection::detect_tool;
 use crate::core::capability_layer::ScanLayer;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
+use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn, debug};
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{debug, info, warn};
 
 pub struct SemgrepScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for SemgrepScanner {
 impl SemgrepScanner {
     pub fn new() -> Self {
         let path = detect_tool("semgrep");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -62,9 +60,16 @@ impl ScannerPlugin for SemgrepScanner {
         // Reactive Trigger check: Is there a local path to scan?
         let scan_path = if std::path::Path::new(&target.host).is_dir() {
             Some(target.host.clone())
-        } else if let Some(p) = target.tactical_context.get("source_path").and_then(|v| v.as_str()) {
+        } else if let Some(p) = target
+            .tactical_context
+            .get("source_path")
+            .and_then(|v| v.as_str())
+        {
             Some(p.to_string())
-        } else if target.findings.iter().any(|f| f.title.to_lowercase().contains("leaked source code") || f.title.to_lowercase().contains("github secret")) {
+        } else if target.findings.iter().any(|f| {
+            f.title.to_lowercase().contains("leaked source code")
+                || f.title.to_lowercase().contains("github secret")
+        }) {
             // If leaked code is found but no path is provided, we can't scan yet.
             // In a real pipeline, the previous plugin would have cloned the repo.
             None
@@ -75,7 +80,10 @@ impl ScannerPlugin for SemgrepScanner {
         let path = match scan_path {
             Some(p) => p,
             None => {
-                debug!("SemgrepScanner: No local source path found for {}. Skipping.", target.host);
+                debug!(
+                    "SemgrepScanner: No local source path found for {}. Skipping.",
+                    target.host
+                );
                 return Ok(Vec::new());
             }
         };
@@ -84,7 +92,8 @@ impl ScannerPlugin for SemgrepScanner {
 
         let output = Command::new(&self.binary_path)
             .arg("scan")
-            .arg("--config").arg("auto")
+            .arg("--config")
+            .arg("auto")
             .arg("--json")
             .arg(&path)
             .stdin(Stdio::null())
@@ -100,11 +109,29 @@ impl ScannerPlugin for SemgrepScanner {
             if let Ok(json_data) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(results) = json_data.get("results").and_then(|r| r.as_array()) {
                     for res in results {
-                        let check_id = res.get("check_id").and_then(|v| v.as_str()).unwrap_or("unknown_rule");
-                        let message = res.get("extra").and_then(|e| e.get("message")).and_then(|v| v.as_str()).unwrap_or("No description");
-                        let severity_str = res.get("extra").and_then(|e| e.get("severity")).and_then(|v| v.as_str()).unwrap_or("info");
-                        let file = res.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        let line = res.get("start").and_then(|s| s.get("line")).and_then(|v| v.as_u64()).unwrap_or(0);
+                        let check_id = res
+                            .get("check_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown_rule");
+                        let message = res
+                            .get("extra")
+                            .and_then(|e| e.get("message"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("No description");
+                        let severity_str = res
+                            .get("extra")
+                            .and_then(|e| e.get("severity"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("info");
+                        let file = res
+                            .get("path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let line = res
+                            .get("start")
+                            .and_then(|s| s.get("line"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
 
                         let severity = match severity_str.to_lowercase().as_str() {
                             "error" => Severity::High,

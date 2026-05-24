@@ -47,9 +47,17 @@ pub struct Args {
     pub doh: bool,
     #[arg(short, long)]
     pub ports: Option<String>,
-    #[arg(long, default_value_t = false, help = "Activate professional vulnerability hunting profile (OS detection, version-intensity 9, NSE vuln/exploit/auth/default/discovery, 5000 top ports)")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Activate professional vulnerability hunting profile (OS detection, version-intensity 9, NSE vuln/exploit/auth/default/discovery, 5000 top ports)"
+    )]
     pub vuln_scan: bool,
-    #[arg(long, default_value_t = false, help = "Activate Autonomous AI Agent (Sentinel)")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Activate Autonomous AI Agent (Sentinel)"
+    )]
     pub autonomous: bool,
     #[arg(long, default_value = "http://localhost:11434")]
     pub ollama_url: String,
@@ -57,25 +65,50 @@ pub struct Args {
     pub max_layer: String,
     #[arg(long, help = "Enable real-time web dashboard (port)")]
     pub dashboard: Option<u16>,
-    #[arg(long, default_value_t = false, help = "Activate Multi-Agent Swarm Mode (V4.0)")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Activate Multi-Agent Swarm Mode (V4.0)"
+    )]
     pub swarm: bool,
-    #[arg(long, default_value_t = 5000, help = "Maximum tokens allowed per scan job")]
+    #[arg(
+        long,
+        default_value_t = 5000,
+        help = "Maximum tokens allowed per scan job"
+    )]
     pub max_tokens: u32,
     #[arg(long, help = "Start MCP (Model Context Protocol) Server via SSE")]
     pub mcp_server: bool,
     #[arg(long, default_value_t = 3001)]
     pub mcp_port: u16,
-    #[arg(short = 'P', long, default_value_t = false, help = "Activate autonomous persistence phase (Decepticon Fase 5)")]
+    #[arg(
+        short = 'P',
+        long,
+        default_value_t = false,
+        help = "Activate autonomous persistence phase (Decepticon Fase 5)"
+    )]
     pub persist: bool,
-    #[arg(short = 'C', long, default_value_t = false, help = "Activate post-exploit consolidation phase")]
+    #[arg(
+        short = 'C',
+        long,
+        default_value_t = false,
+        help = "Activate post-exploit consolidation phase"
+    )]
     pub consolidate: bool,
-    #[arg(long, default_value_t = false, help = "Run as a distributed worker node")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Run as a distributed worker node"
+    )]
     pub worker: bool,
     #[arg(long, help = "Unique ID for this worker node")]
     pub node_id: Option<String>,
     #[arg(long, help = "NATS server URL for decentralized mesh")]
     pub nats_url: Option<String>,
-    #[arg(long, help = "Scope ID for cross-target isolation and lateral movement grouping")]
+    #[arg(
+        long,
+        help = "Scope ID for cross-target isolation and lateral movement grouping"
+    )]
     pub scope_id: Option<String>,
 }
 
@@ -100,7 +133,10 @@ pub async fn binary_health_check() {
     let p0_tools = vec!["bbscope", "asnmap", "cdncheck", "tlsx", "clairvoyance"];
     for tool in p0_tools {
         if !mimikri::utils::tool_detection::check_tool_availability(tool).await {
-            warn!("🛡️ [PREFLIGHT] P0 TOOL MISSING: {}. Pipeline may be incomplete.", tool);
+            warn!(
+                "🛡️ [PREFLIGHT] P0 TOOL MISSING: {}. Pipeline may be incomplete.",
+                tool
+            );
         } else {
             info!("🛡️ [PREFLIGHT] {} detected. OK.", tool);
         }

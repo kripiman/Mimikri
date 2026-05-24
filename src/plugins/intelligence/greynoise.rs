@@ -1,10 +1,10 @@
-use crate::plugins::{ScannerPlugin, Capability, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use async_trait::async_trait;
-use anyhow::Result;
-use tracing::{info, warn, error};
 use crate::models::constants::*;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, RiskLevel, ScannerPlugin, TargetType};
+use anyhow::Result;
+use async_trait::async_trait;
 use std::time::Duration;
+use tracing::{error, info, warn};
 
 pub struct GreyNoiseScanner {
     api_key: Option<String>,
@@ -80,7 +80,7 @@ impl ScannerPlugin for GreyNoiseScanner {
         };
 
         info!("GreyNoiseScanner: checking IP {}", ip);
-        
+
         let api_key = match &self.api_key {
             Some(key) => key,
             None => {
@@ -91,17 +91,14 @@ impl ScannerPlugin for GreyNoiseScanner {
 
         let client = reqwest::Client::new();
         let url = format!("https://api.greynoise.io/v3/community/{}", ip);
-        
-        let response = match client.get(&url)
-            .header("key", api_key)
-            .send()
-            .await {
-                Ok(resp) => resp,
-                Err(e) => {
-                    error!("GreyNoiseScanner: API error: {}", e);
-                    return Ok(Vec::new());
-                }
-            };
+
+        let response = match client.get(&url).header("key", api_key).send().await {
+            Ok(resp) => resp,
+            Err(e) => {
+                error!("GreyNoiseScanner: API error: {}", e);
+                return Ok(Vec::new());
+            }
+        };
 
         if response.status() == 404 {
             // Not found in GreyNoise
@@ -109,7 +106,10 @@ impl ScannerPlugin for GreyNoiseScanner {
         }
 
         if !response.status().is_success() {
-            warn!("GreyNoiseScanner: API returned status {}", response.status());
+            warn!(
+                "GreyNoiseScanner: API returned status {}",
+                response.status()
+            );
             return Ok(Vec::new());
         }
 
@@ -123,7 +123,10 @@ impl ScannerPlugin for GreyNoiseScanner {
                 "IP-INTELLIGENCE",
                 Category::Recon,
                 Severity::Info,
-                &format!("GreyNoise Intelligence for {}: Noise={}, RIOT={}", ip, noise, riot),
+                &format!(
+                    "GreyNoise Intelligence for {}: Noise={}, RIOT={}",
+                    ip, noise, riot
+                ),
                 serde_json::json!({
                     "ip": ip,
                     "noise": noise,
@@ -131,7 +134,7 @@ impl ScannerPlugin for GreyNoiseScanner {
                     "classification": json.get("classification"),
                     "name": json.get("name"),
                     "last_seen": json.get("last_seen"),
-                })
+                }),
             ));
         }
 

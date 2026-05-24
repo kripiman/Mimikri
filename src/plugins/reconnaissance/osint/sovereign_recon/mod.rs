@@ -1,16 +1,18 @@
 mod sources;
-use crate::plugins::{DiscoveryPlugin, Capability, PluginMetadata, RiskLevel, TargetType, DiscoveryResult};
-use crate::models::{TargetHost, PLUGIN_SOVEREIGN_RECON};
 use crate::core::capability_layer::ScanLayer;
-use crate::utils::proxy::ProxyManager;
-use crate::utils::common::HumanJitter;
-use async_trait::async_trait;
-use anyhow::Result;
-use tracing::{info, warn};
 use crate::core::policy::{PolicyProvider, ReloadablePolicy};
+use crate::models::{TargetHost, PLUGIN_SOVEREIGN_RECON};
+use crate::plugins::{
+    Capability, DiscoveryPlugin, DiscoveryResult, PluginMetadata, RiskLevel, TargetType,
+};
+use crate::utils::common::HumanJitter;
+use crate::utils::proxy::ProxyManager;
+use anyhow::Result;
+use async_trait::async_trait;
+use reqwest::Client;
 use std::sync::Arc;
 use std::time::Duration;
-use reqwest::Client;
+use tracing::{info, warn};
 pub struct SovereignReconScanner {
     proxy_manager: Arc<ProxyManager>,
     jitter: Arc<HumanJitter>,
@@ -87,34 +89,44 @@ impl DiscoveryPlugin for SovereignReconScanner {
     }
 
     async fn discover(&self, target: &TargetHost) -> Result<Vec<DiscoveryResult>> {
-        info!("🔱 SOVEREIGN RECON: Launching optimized pipeline for {}", target.host);
-        
+        info!(
+            "🔱 SOVEREIGN RECON: Launching optimized pipeline for {}",
+            target.host
+        );
+
         // Pre-flight scope check
         if self.strict_scope && !self.policy.is_target_allowed(&target.host) {
             warn!("🛡️ V14.2 SCOPE: Target host '{}' is OUT OF SCOPE. Aborting sovereign recon immediately.", target.host);
             return Ok(vec![]);
         }
 
-        let mut all_results: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+        let mut all_results: std::collections::HashMap<String, serde_json::Value> =
+            std::collections::HashMap::new();
 
         // Phase 0: Instant Free Aggregates
         info!("🕰️ Phase 0: Wayback & HackerTarget historical lookup...");
         let wayback = self.query_wayback(&target.host).await;
         if !wayback.is_empty() {
-            info!("  ✅ Wayback Machine found {} unique subdomains", wayback.len());
+            info!(
+                "  ✅ Wayback Machine found {} unique subdomains",
+                wayback.len()
+            );
             for s in wayback {
                 if !self.strict_scope || self.policy.is_target_allowed(&s) {
                     all_results.insert(s, serde_json::json!({"src": "wayback", "confidence": 0.6}));
                 }
             }
         }
-        
+
         let ht = self.query_hackertarget(&target.host).await;
         if !ht.is_empty() {
             info!("  ✅ HackerTarget found {} unique hosts", ht.len());
             for s in ht {
                 if !self.strict_scope || self.policy.is_target_allowed(&s) {
-                    all_results.insert(s, serde_json::json!({"src": "hackertarget", "confidence": 0.7}));
+                    all_results.insert(
+                        s,
+                        serde_json::json!({"src": "hackertarget", "confidence": 0.7}),
+                    );
                 }
             }
         }
@@ -139,7 +151,10 @@ impl DiscoveryPlugin for SovereignReconScanner {
             in_scope_hosts.push(target.host.clone());
         }
 
-        info!("🛡️ V14.2 SCOPE: Running budget Phases 2-7 for {} in-scope hosts...", in_scope_hosts.len());
+        info!(
+            "🛡️ V14.2 SCOPE: Running budget Phases 2-7 for {} in-scope hosts...",
+            in_scope_hosts.len()
+        );
 
         for host in in_scope_hosts {
             // 2. SecurityTrails
@@ -150,40 +165,54 @@ impl DiscoveryPlugin for SovereignReconScanner {
                 info!("  ✅ SecurityTrails captured {} subdomains", st.len());
                 for s in st {
                     if !self.strict_scope || self.policy.is_target_allowed(&s) {
-                        all_results.insert(s, serde_json::json!({"src": "securitytrails", "confidence": 0.8}));
+                        all_results.insert(
+                            s,
+                            serde_json::json!({"src": "securitytrails", "confidence": 0.8}),
+                        );
                     }
                 }
             }
 
             // 3. Netlas (Paid - Precision)
             self.jitter.sleep().await;
-            info!("💎 Phase 3/7: Netlas High-Precision Deep Dive for {}...", host);
+            info!(
+                "💎 Phase 3/7: Netlas High-Precision Deep Dive for {}...",
+                host
+            );
             let netlas = self.query_netlas(&host).await;
             if !netlas.is_empty() {
                 info!("  ✅ Netlas captured {} subdomains", netlas.len());
                 for s in netlas {
                     if !self.strict_scope || self.policy.is_target_allowed(&s) {
-                        all_results.insert(s, serde_json::json!({"src": "netlas", "confidence": 0.9}));
+                        all_results
+                            .insert(s, serde_json::json!({"src": "netlas", "confidence": 0.9}));
                     }
                 }
             }
 
             // 4. Shodan
             self.jitter.sleep().await;
-            info!("🔭 Phase 4/7: Shodan infrastructure discovery for {}...", host);
+            info!(
+                "🔭 Phase 4/7: Shodan infrastructure discovery for {}...",
+                host
+            );
             let shodan = self.query_shodan(&host).await;
             if !shodan.is_empty() {
                 info!("  ✅ Shodan captured {} subdomains", shodan.len());
                 for s in shodan {
                     if !self.strict_scope || self.policy.is_target_allowed(&s) {
-                        all_results.insert(s, serde_json::json!({"src": "shodan", "confidence": 0.85}));
+                        all_results
+                            .insert(s, serde_json::json!({"src": "shodan", "confidence": 0.85}));
                     }
                 }
             }
 
             // 5. Criminal IP (Reputation)
             self.jitter.sleep().await;
-            info!("🏴‍☠️ Phase 5/7: Criminal IP reputation scoring for {}...", host);
+            info!(
+                "🏴‍☠️ Phase 5/7: Criminal IP reputation scoring for {}...",
+                host
+            );
             let cip_findings = self.query_criminalip(&host).await;
             for finding in cip_findings {
                 info!("  ✅ {}", finding);
@@ -202,7 +231,8 @@ impl DiscoveryPlugin for SovereignReconScanner {
                 info!("  ✅ FOFA captured {} assets", fofa.len());
                 for s in fofa {
                     if !self.strict_scope || self.policy.is_target_allowed(&s) {
-                        all_results.insert(s, serde_json::json!({"src": "fofa", "confidence": 0.7}));
+                        all_results
+                            .insert(s, serde_json::json!({"src": "fofa", "confidence": 0.7}));
                     }
                 }
             }
@@ -215,7 +245,8 @@ impl DiscoveryPlugin for SovereignReconScanner {
                 info!("  ✅ ZoomEye captured {} assets", zoomeye.len());
                 for s in zoomeye {
                     if !self.strict_scope || self.policy.is_target_allowed(&s) {
-                        all_results.insert(s, serde_json::json!({"src": "zoomeye", "confidence": 0.75}));
+                        all_results
+                            .insert(s, serde_json::json!({"src": "zoomeye", "confidence": 0.75}));
                     }
                 }
             }
@@ -230,17 +261,25 @@ impl DiscoveryPlugin for SovereignReconScanner {
                 info!("  🚑 Subfinder Fallback captured {} subdomains", subs.len());
                 for r in subs {
                     if !self.strict_scope || self.policy.is_target_allowed(&r.host) {
-                        all_results.insert(r.host, serde_json::json!({"src": "subfinder", "confidence": 0.85}));
+                        all_results.insert(
+                            r.host,
+                            serde_json::json!({"src": "subfinder", "confidence": 0.85}),
+                        );
                     }
                 }
             }
         }
 
-        let final_list: Vec<DiscoveryResult> = all_results.into_iter()
+        let final_list: Vec<DiscoveryResult> = all_results
+            .into_iter()
             .map(|(host, metadata)| DiscoveryResult { host, metadata })
             .collect();
-        info!("✅ SOVEREIGN RECON COMPLETE: Captured {} total assets for {}", final_list.len(), target.host);
-        
+        info!(
+            "✅ SOVEREIGN RECON COMPLETE: Captured {} total assets for {}",
+            final_list.len(),
+            target.host
+        );
+
         Ok(final_list)
     }
 }

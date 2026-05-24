@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use crate::utils::{detect_tool, check_tool_availability};
+use crate::models::constants::*;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, RiskLevel, ScannerPlugin, TargetType};
+use crate::utils::{check_tool_availability, detect_tool};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn, error};
 use std::process::Stdio;
 use tokio::process::Command;
-use crate::models::constants::*;
+use tracing::{error, info, warn};
 
 pub struct X8Scanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for X8Scanner {
 impl X8Scanner {
     pub fn new() -> Self {
         let path = detect_tool("x8");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -61,7 +59,7 @@ impl ScannerPlugin for X8Scanner {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("X8Scanner: scanning target {}", target.host);
-        
+
         if !self.check_dependencies().await.unwrap_or(false) {
             warn!("X8Scanner: x8 binary not found. Skipping.");
             return Ok(Vec::new());
@@ -84,18 +82,21 @@ impl ScannerPlugin for X8Scanner {
         };
         let temp_path = temp.path().to_string_lossy().to_string();
 
-        let _output = tokio::time::timeout(std::time::Duration::from_secs(180), Command::new(&self.binary_path)
-            .arg("-u")
-            .arg(&url)
-            .arg("-oJ")
-            .arg(&temp_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output())
-            .await
-            .context("X8 execution timed out")?
-            .context("Failed to run x8")?;
+        let _output = tokio::time::timeout(
+            std::time::Duration::from_secs(180),
+            Command::new(&self.binary_path)
+                .arg("-u")
+                .arg(&url)
+                .arg("-oJ")
+                .arg(&temp_path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output(),
+        )
+        .await
+        .context("X8 execution timed out")?
+        .context("Failed to run x8")?;
 
         if let Ok(content) = tokio::fs::read_to_string(&temp_path).await {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -110,7 +111,7 @@ impl ScannerPlugin for X8Scanner {
                             serde_json::json!({
                                 "url": url,
                                 "parameters": params,
-                            })
+                            }),
                         ));
                     }
                 }

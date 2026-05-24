@@ -3,8 +3,8 @@
 
 #![warn(clippy::all)]
 
-pub mod menu;
 mod boot;
+pub mod menu;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

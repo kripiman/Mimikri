@@ -1,43 +1,47 @@
-use crate::models::{TargetHost, ScanMetadata};
+use crate::models::{ScanMetadata, TargetHost};
 use anyhow::Result;
 use async_trait::async_trait;
 
-pub mod nats_sink;
-pub mod buffered;
-pub mod jsonl;
-pub mod postgres;
-pub mod webhook;
-pub mod markdown;
-pub mod timeline;
 pub mod bounty;
 pub mod bounty_draft;
+pub mod buffered;
+pub mod jsonl;
+pub mod markdown;
+pub mod nats_sink;
+pub mod postgres;
+pub mod timeline;
+pub mod webhook;
 
-pub use buffered::BufferedSink;
-pub use jsonl::JsonlSink;
-pub use postgres::{PostgresSink, AgentSession};
-pub use webhook::TacticalWebhookSink;
-pub use markdown::MarkdownSink;
-pub use timeline::TimelineSink;
 pub use bounty::BountySink;
 pub use bounty_draft::BugBountyDraftSink;
+pub use buffered::BufferedSink;
+pub use jsonl::JsonlSink;
+pub use markdown::MarkdownSink;
+pub use postgres::{AgentSession, PostgresSink};
+pub use timeline::TimelineSink;
+pub use webhook::TacticalWebhookSink;
 
 /// Trait for defining where scan results should be written.
 #[async_trait]
 pub trait DataSink: Send + Sync {
     /// Write a single completed TargetHost to the sink.
     async fn write(&mut self, target: &TargetHost) -> Result<()>;
-    
+
     /// Write scan metadata to the sink.
     async fn write_metadata(&mut self, metadata: &ScanMetadata) -> Result<()>;
-    
+
     /// Finalize the sink (e.g., flush buffers, close files).
     async fn close(&mut self) -> Result<()>;
-    
+
     /// Optional: Retrieve the underlying DB pool if applicable
-    fn get_db_pool(&self) -> Option<sqlx::PgPool> { None }
-    
+    fn get_db_pool(&self) -> Option<sqlx::PgPool> {
+        None
+    }
+
     /// Optional: Retrieve the scan_id if initialized by the sink
-    fn get_scan_id(&self) -> Option<i64> { None }
+    fn get_scan_id(&self) -> Option<i64> {
+        None
+    }
 }
 
 /// A DataSink that broadcasts to multiple other sinks.

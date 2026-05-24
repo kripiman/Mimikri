@@ -1,4 +1,4 @@
-use crate::plugins::triage::similarity_engine::{compute_tlsh, calculate_distance};
+use crate::plugins::triage::similarity_engine::{calculate_distance, compute_tlsh};
 
 /// D4 FIX: Strings con entropía realista (contenido de security finding).
 /// ASCII puro para evitar problemas de UTF-8 en mutate() (E2 preventivo).
@@ -79,7 +79,10 @@ fn tlsh_triangle_inequality_near_duplicates() {
     let rate = violations as f64 / total.max(1) as f64;
     println!(
         "TLSH Triangle Inequality: {}/{} violations ({:.2}%), {} skipped (TLSH returned None)",
-        violations, total, rate * 100.0, skipped_none
+        violations,
+        total,
+        rate * 100.0,
+        skipped_none
     );
 
     // Necesitamos muestras suficientes para ser estadísticamente válidos (D4)
@@ -95,6 +98,8 @@ fn tlsh_triangle_inequality_near_duplicates() {
         rate < 0.01,
         "TLSH viola la desigualdad triangular en {:.1}% de tripletas ({}/{}) — \
          BK-Tree NO es seguro. Considera usar LSH en su lugar.",
-        rate * 100.0, violations, total
+        rate * 100.0,
+        violations,
+        total
     );
 }

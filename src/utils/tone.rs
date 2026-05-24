@@ -1,6 +1,6 @@
-use serde_json::{Value, Map, json};
+use anyhow::{anyhow, Result};
+use serde_json::{json, Map, Value};
 use std::collections::HashMap;
-use anyhow::{Result, anyhow};
 
 /// Sanitizes a string for safe transport over JSON/SSE streams.
 /// Converts non-ASCII and control characters to \uXXXX escape sequences,
@@ -22,10 +22,11 @@ pub fn to_ascii_safe(s: &str) -> String {
 
 /// Sanitiza un campo para el formato TONE, eliminando el delimitador '|' y saltos de línea.
 fn sanitize_tone_field(input: &str) -> String {
-    input.replace(['|', '\n'], " ")
-         .replace('\r', "")
-         .trim()
-         .to_string()
+    input
+        .replace(['|', '\n'], " ")
+        .replace('\r', "")
+        .trim()
+        .to_string()
 }
 
 /// TONE (Tactical Object Notation for Egress)
@@ -36,7 +37,7 @@ pub fn tone_encode(findings: &[Value]) -> String {
     }
 
     let mut output = String::new();
-    
+
     // Header V1 estandarizado
     output.push_str("#type:tone-v1;keys:$0:id,$1:sev,$2:cat,$3:conf,$4:summary\n");
     output.push_str(&format!("[{}]{{$0,$1,$2,$3,$4}}:\n", findings.len()));
@@ -45,11 +46,16 @@ pub fn tone_encode(findings: &[Value]) -> String {
         let id = f.get("id").and_then(|v| v.as_str()).unwrap_or("?");
         let sev = f.get("sev").and_then(|v| v.as_str()).unwrap_or("?");
         let cat = f.get("cat").and_then(|v| v.as_str()).unwrap_or("?");
-        
+
         // Campo de Confianza (Phase 4 Integration)
-        let conf = f.get("conf").and_then(|v| v.as_str()).unwrap_or("POTENTIAL");
-        
-        let summary_raw = f.get("desc").and_then(|v| v.as_str())
+        let conf = f
+            .get("conf")
+            .and_then(|v| v.as_str())
+            .unwrap_or("POTENTIAL");
+
+        let summary_raw = f
+            .get("desc")
+            .and_then(|v| v.as_str())
             .or_else(|| f.get("title").and_then(|v| v.as_str()))
             .unwrap_or("");
 
@@ -64,11 +70,18 @@ pub fn tone_encode(findings: &[Value]) -> String {
             .collect::<String>();
 
         // Usamos '|' como separador denso protegido
-        output.push_str(&format!("  {}|{}|{}|{}|{}\n", s_id, s_sev, s_cat, s_conf, s_summary.trim()));
+        output.push_str(&format!(
+            "  {}|{}|{}|{}|{}\n",
+            s_id,
+            s_sev,
+            s_cat,
+            s_conf,
+            s_summary.trim()
+        ));
     }
 
     output.push_str("\n[TIP: Si necesitas el detalle técnico de un ID específico, pídemelo.]");
-    
+
     output
 }
 
@@ -85,7 +98,8 @@ pub fn tonl_encode(data: Value) -> String {
     let mut sorted: Vec<_> = key_freq.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let dict: Vec<String> = sorted.into_iter()
+    let dict: Vec<String> = sorted
+        .into_iter()
         .filter(|(k, freq)| {
             *freq > 1 && k.len() > 3 && k.chars().all(|c| c.is_alphanumeric() || c == '_')
         })
@@ -93,7 +107,9 @@ pub fn tonl_encode(data: Value) -> String {
         .map(|(k, _)| k)
         .collect();
 
-    let dict_map: HashMap<String, String> = dict.iter().enumerate()
+    let dict_map: HashMap<String, String> = dict
+        .iter()
+        .enumerate()
         .map(|(i, k)| (k.clone(), format!("${}", i)))
         .collect();
 
@@ -101,7 +117,9 @@ pub fn tonl_encode(data: Value) -> String {
     if !dict.is_empty() {
         output.push_str("#keys ");
         for (i, key) in dict.iter().enumerate() {
-            if i > 0 { output.push(','); }
+            if i > 0 {
+                output.push(',');
+            }
             output.push_str(&format!("${}:{}", i, key));
         }
         output.push('\n');
@@ -120,7 +138,9 @@ pub fn tonl_decode(input: &str) -> Result<Value> {
         if t.starts_with("#version") {
             lines.next();
         } else if t.starts_with("#keys") {
-            if dict.len() > 128 { return Err(anyhow!("TONL: dictionary overflow")); }
+            if dict.len() > 128 {
+                return Err(anyhow!("TONL: dictionary overflow"));
+            }
             let keys_part = t.strip_prefix("#keys").unwrap().trim();
             for part in keys_part.split(',') {
                 let kv: Vec<&str> = part.splitn(2, ':').collect();
@@ -153,24 +173,32 @@ fn tonl_encode_value(data: Value, depth: usize, dict: &HashMap<String, String>) 
     let indent = "  ".repeat(depth);
     match data {
         Value::Array(arr) => {
-            if arr.is_empty() { return "[]".to_string(); }
+            if arr.is_empty() {
+                return "[]".to_string();
+            }
             if let Some(first) = arr[0].as_object() {
                 let mut keys: Vec<&str> = first.keys().map(|k| k.as_str()).collect();
                 keys.sort();
-                let header_keys: Vec<String> = keys.iter()
+                let header_keys: Vec<String> = keys
+                    .iter()
                     .map(|&k| dict.get(k).cloned().unwrap_or_else(|| k.to_string()))
                     .collect();
                 let mut out = format!("[{}]{{{}}}:\n", arr.len(), header_keys.join(","));
                 for item in &arr {
                     if let Some(obj) = item.as_object() {
-                        let row: Vec<String> = keys.iter().map(|&k| {
-                            match obj.get(k).unwrap_or(&Value::Null) {
+                        let row: Vec<String> = keys
+                            .iter()
+                            .map(|&k| match obj.get(k).unwrap_or(&Value::Null) {
                                 Value::String(s) => {
-                                    if s.contains(',') { format!("\"{}\"", s) } else { s.clone() }
+                                    if s.contains(',') {
+                                        format!("\"{}\"", s)
+                                    } else {
+                                        s.clone()
+                                    }
                                 }
                                 v => v.to_string(),
-                            }
-                        }).collect();
+                            })
+                            .collect();
                         out.push_str(&format!("{}  {}\n", indent, row.join(",")));
                     }
                 }
@@ -182,16 +210,19 @@ fn tonl_encode_value(data: Value, depth: usize, dict: &HashMap<String, String>) 
         Value::Object(obj) => {
             let mut keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
             keys.sort();
-            keys.iter().map(|&k| {
-                let v = obj.get(k).unwrap();
-                let k_enc = dict.get(k).cloned().unwrap_or_else(|| k.to_string());
-                let v_enc = tonl_encode_value(v.clone(), depth + 1, dict);
-                if v_enc.contains('\n') {
-                    format!("{}:\n{}  {}", k_enc, indent, v_enc)
-                } else {
-                    format!("{}: {}", k_enc, v_enc)
-                }
-            }).collect::<Vec<_>>().join(&format!("\n{}", indent))
+            keys.iter()
+                .map(|&k| {
+                    let v = obj.get(k).unwrap();
+                    let k_enc = dict.get(k).cloned().unwrap_or_else(|| k.to_string());
+                    let v_enc = tonl_encode_value(v.clone(), depth + 1, dict);
+                    if v_enc.contains('\n') {
+                        format!("{}:\n{}  {}", k_enc, indent, v_enc)
+                    } else {
+                        format!("{}: {}", k_enc, v_enc)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(&format!("\n{}", indent))
         }
         Value::String(s) => s,
         _ => data.to_string(),
@@ -213,26 +244,36 @@ fn tonl_decode_value(
         lines.next();
         return tonl_decode_value(lines, depth, dict);
     }
-    if current_indent < depth && depth > 0 { return Ok(Value::Null); }
+    if current_indent < depth && depth > 0 {
+        return Ok(Value::Null);
+    }
     lines.next();
 
     // Tabular array: [N]{field,...}:
     if line.starts_with('[') && line.contains(']') && line.contains('{') {
-        let count_end = line.find(']').ok_or_else(|| anyhow!("TONL: malformed array header"))?;
-        let count: usize = line[1..count_end].parse().map_err(|e| anyhow!("TONL: {}", e))?;
+        let count_end = line
+            .find(']')
+            .ok_or_else(|| anyhow!("TONL: malformed array header"))?;
+        let count: usize = line[1..count_end]
+            .parse()
+            .map_err(|e| anyhow!("TONL: {}", e))?;
         let fs = line.find('{').unwrap() + 1;
         let fe = line.find('}').unwrap();
-        let fields: Vec<String> = line[fs..fe].split(',').map(|f| {
-            let name = f.split(':').next().unwrap_or(f);
-            if name.starts_with('$') {
-                dict.get(name).cloned().unwrap_or_else(|| name.to_string())
-            } else {
-                name.to_string()
-            }
-        }).collect();
+        let fields: Vec<String> = line[fs..fe]
+            .split(',')
+            .map(|f| {
+                let name = f.split(':').next().unwrap_or(f);
+                if name.starts_with('$') {
+                    dict.get(name).cloned().unwrap_or_else(|| name.to_string())
+                } else {
+                    name.to_string()
+                }
+            })
+            .collect();
         let mut arr = Vec::new();
         for _ in 0..count {
-            let row = lines.next()
+            let row = lines
+                .next()
                 .ok_or_else(|| anyhow!("TONL: expected {} rows", count))?
                 .trim()
                 .to_string();
@@ -253,7 +294,9 @@ fn tonl_decode_value(
         let mut current = Some(line.to_string());
         while let Some(l) = current {
             let parts: Vec<&str> = l.splitn(2, ':').collect();
-            if parts.len() < 2 { break; }
+            if parts.len() < 2 {
+                break;
+            }
             let mut key = parts[0].trim().to_string();
             if key.starts_with('$') {
                 key = dict.get(&key).cloned().unwrap_or(key);
@@ -270,10 +313,15 @@ fn tonl_decode_value(
                     }
                 }
             } else {
-                let v = if val_str.eq_ignore_ascii_case("true") { json!(true) }
-                        else if val_str.eq_ignore_ascii_case("false") { json!(false) }
-                        else if let Ok(n) = val_str.parse::<f64>() { json!(n) }
-                        else { json!(val_str.trim_matches('"')) };
+                let v = if val_str.eq_ignore_ascii_case("true") {
+                    json!(true)
+                } else if val_str.eq_ignore_ascii_case("false") {
+                    json!(false)
+                } else if let Ok(n) = val_str.parse::<f64>() {
+                    json!(n)
+                } else {
+                    json!(val_str.trim_matches('"'))
+                };
                 obj.insert(key, v);
             }
             current = match lines.peek() {
@@ -300,10 +348,18 @@ fn tonl_parse_csv_row(line: &str) -> Vec<String> {
     let mut in_quotes = false;
     let mut escaped = false;
     for c in line.chars() {
-        if escaped { current.push(c); escaped = false; continue; }
-        if c == '\\' { escaped = true; continue; }
-        if c == '"' { in_quotes = !in_quotes; }
-        else if c == ',' && !in_quotes {
+        if escaped {
+            current.push(c);
+            escaped = false;
+            continue;
+        }
+        if c == '\\' {
+            escaped = true;
+            continue;
+        }
+        if c == '"' {
+            in_quotes = !in_quotes;
+        } else if c == ',' && !in_quotes {
             result.push(current.trim().to_string());
             current = String::new();
         } else {
@@ -337,11 +393,14 @@ mod tests {
         ];
 
         let encoded = tone_encode(&findings);
-        
+
         assert!(encoded.contains("#type:tone-v1"));
         assert!(encoded.contains("[2]{$0,$1,$2,$3,$4}:"));
-        assert!(encoded.contains("sqli-01|high|vulnerability|POTENTIAL|SQL Injection found in /api/v1/login"));
-        assert!(encoded.contains("xss-02|medium|vulnerability|POTENTIAL|Cross-Site Scripting in search parameter"));
+        assert!(encoded
+            .contains("sqli-01|high|vulnerability|POTENTIAL|SQL Injection found in /api/v1/login"));
+        assert!(encoded.contains(
+            "xss-02|medium|vulnerability|POTENTIAL|Cross-Site Scripting in search parameter"
+        ));
     }
 
     #[test]
@@ -372,8 +431,12 @@ mod tests {
         ]);
         let tonl = tonl_encode(data.clone());
         let plain = serde_json::to_string(&data).unwrap();
-        assert!(tonl.len() < plain.len(),
-            "TONL ({} chars) must be smaller than JSON ({} chars)", tonl.len(), plain.len());
+        assert!(
+            tonl.len() < plain.len(),
+            "TONL ({} chars) must be smaller than JSON ({} chars)",
+            tonl.len(),
+            plain.len()
+        );
     }
 
     #[test]

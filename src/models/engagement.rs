@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use anyhow::Result;
-use std::path::Path;
 use crate::models::objectives::OPPLAN;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngagementState {

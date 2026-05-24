@@ -1,11 +1,11 @@
-use serde::{Deserialize, Serialize};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
-use tracing::info;
-use anyhow::{Result, Context};
-use std::sync::Arc;
 use crate::utils::proxy::ProxyManager;
+use anyhow::{Context, Result};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Droplet {
@@ -32,7 +32,9 @@ pub struct Network {
 
 impl Droplet {
     pub fn public_ip(&self) -> Option<String> {
-        self.networks.v4.iter()
+        self.networks
+            .v4
+            .iter()
             .find(|n| n.r#type == "public")
             .map(|n| n.ip_address.clone())
     }
@@ -56,7 +58,8 @@ use crate::utils::config::ProxyMode;
 
 fn generate_proxy_user_data(mode: ProxyMode, user: &str, pass: &str) -> String {
     match mode {
-        ProxyMode::Dante => format!(r#"#cloud-config
+        ProxyMode::Dante => format!(
+            r#"#cloud-config
 package_update: true
 packages:
   - dante-server
@@ -69,14 +72,14 @@ write_files:
       socksmethod: username
       user.privileged: root
       user.unprivileged: nobody
-      
+
       client method: username
       client pass {{
           from: 0.0.0.0/0
           to: 0.0.0.0/0
           socksmethod: username
       }}
-      
+
       socks pass {{
           from: 0.0.0.0/0
           to: 0.0.0.0/0
@@ -88,16 +91,23 @@ runcmd:
   - echo "{user}:{pass}" | chpasswd
   - systemctl restart danted
   - shutdown -h +120
-"#, user = user, pass = pass),
-        ProxyMode::Shadowsocks => format!(r#"#cloud-config
+"#,
+            user = user,
+            pass = pass
+        ),
+        ProxyMode::Shadowsocks => format!(
+            r#"#cloud-config
 package_update: true
 packages:
   - docker.io
 runcmd:
   - docker run -d --name ss-server --restart always -p 1080:8388 shadowsocks/shadowsocks-libev ss-server -s 0.0.0.0 -p 8388 -k {pass} -m aes-256-gcm
   - shutdown -h +120
-"#, pass = pass),
-        ProxyMode::Hysteria => format!(r#"#cloud-config
+"#,
+            pass = pass
+        ),
+        ProxyMode::Hysteria => format!(
+            r#"#cloud-config
 package_update: true
 runcmd:
   - wget https://github.com/apernet/hysteria/releases/download/app%2Fv2.5.2/hysteria-linux-amd64 -O /usr/local/bin/hysteria
@@ -110,7 +120,9 @@ runcmd:
   - echo "auth: {pass}" >> /etc/hysteria.yaml
   - hysteria server -c /etc/hysteria.yaml &
   - shutdown -h +120
-"#, pass = pass),
+"#,
+            pass = pass
+        ),
         ProxyMode::None => String::new(),
     }
 }
@@ -129,7 +141,9 @@ impl DigitalOceanClient {
     }
 
     fn get_client(&self) -> Result<reqwest::Client> {
-        let (_, client) = self.proxy_manager.get_client_fail_closed("api.digitalocean.com")?;
+        let (_, client) = self
+            .proxy_manager
+            .get_client_fail_closed("api.digitalocean.com")?;
         Ok(client)
     }
 
@@ -137,14 +151,19 @@ impl DigitalOceanClient {
         let mut headers = HeaderMap::new();
         let auth_val = HeaderValue::from_str(&format!("Bearer {}", self.token))
             .context("Invalid DigitalOcean token format for AUTHORIZATION header")?;
-        
+
         headers.insert(AUTHORIZATION, auth_val);
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         Ok(headers)
     }
 
-    pub async fn create_droplet(&self, name: &str, region: &str, mode: ProxyMode) -> Result<Droplet> {
-        let socks_user = "operator"; 
+    pub async fn create_droplet(
+        &self,
+        name: &str,
+        region: &str,
+        mode: ProxyMode,
+    ) -> Result<Droplet> {
+        let socks_user = "operator";
         let socks_pass = uuid::Uuid::new_v4().to_string()[..12].to_string(); // Professional entropy
 
         let mut ssh_keys = vec![];
@@ -157,7 +176,7 @@ impl DigitalOceanClient {
             region: region.to_string(),
             size: "s-1vcpu-512mb".to_string(),
             image: "ubuntu-22-04-x64".to_string(),
-            ssh_keys, 
+            ssh_keys,
             backups: false,
             ipv6: false,
             monitoring: true,
@@ -165,7 +184,8 @@ impl DigitalOceanClient {
             user_data: Some(generate_proxy_user_data(mode, socks_user, &socks_pass)),
         };
 
-        let response = self.get_client()?
+        let response = self
+            .get_client()?
             .post("https://api.digitalocean.com/v2/droplets")
             .headers(self.headers()?)
             .json(&request)
@@ -181,12 +201,13 @@ impl DigitalOceanClient {
         let mut wrapper: DropletWrapper = response.json().await?;
         wrapper.droplet.socks_user = Some(socks_user.to_string());
         wrapper.droplet.socks_pass = Some(socks_pass);
-        
+
         Ok(wrapper.droplet)
     }
 
     pub async fn get_droplet(&self, id: u64) -> Result<Droplet> {
-        let response = self.get_client()?
+        let response = self
+            .get_client()?
             .get(format!("https://api.digitalocean.com/v2/droplets/{}", id))
             .headers(self.headers()?)
             .send()
@@ -203,13 +224,14 @@ impl DigitalOceanClient {
     }
 
     pub async fn wait_for_ip(&self, id: u64) -> Result<String> {
-        for _ in 0..60 { // Wait up to 10 minutes (DO is fast but let's be safe)
+        for _ in 0..60 {
+            // Wait up to 10 minutes (DO is fast but let's be safe)
             let droplet = self.get_droplet(id).await?;
-            
+
             if let Some(ip) = droplet.public_ip() {
                 return Ok(ip);
             }
-            
+
             sleep(Duration::from_secs(10)).await;
         }
         anyhow::bail!("Timeout waiting for Droplet IP")
@@ -226,7 +248,8 @@ impl DigitalOceanClient {
     }
 
     pub async fn list_droplets(&self) -> Result<Vec<Droplet>> {
-        let response = self.get_client()?
+        let response = self
+            .get_client()?
             .get("https://api.digitalocean.com/v2/droplets?tag_name=osint-ultimate")
             .headers(self.headers()?)
             .send()
@@ -245,7 +268,10 @@ impl DigitalOceanClient {
     pub async fn destroy_all_ephemeral_droplets(&self) -> Result<()> {
         let droplets = self.list_droplets().await?;
         for d in droplets {
-            info!("🛡️ KILL-SWITCH: Destroying ephemeral droplet {} (ID: {})...", d.name, d.id);
+            info!(
+                "🛡️ KILL-SWITCH: Destroying ephemeral droplet {} (ID: {})...",
+                d.name, d.id
+            );
             let _ = self.destroy_droplet(d.id).await;
         }
         Ok(())

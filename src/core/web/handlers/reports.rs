@@ -1,16 +1,11 @@
+use axum::http::{header, StatusCode};
 /// handlers/reports.rs — Item 10 from PLAN v3 6.B mapping table.
 /// pub async fn export_report (L200–L250)
-use axum::{
-    extract::State,
-    response::Response,
-    body::Body,
-    Json,
-};
-use axum::http::{StatusCode, header};
+use axum::{body::Body, extract::State, response::Response, Json};
 use std::sync::Arc;
 
-use super::super::state::{DashboardState, ValidatedOperator};
 use super::super::models::ExportRequest;
+use super::super::state::{DashboardState, ValidatedOperator};
 use crate::utils::bounty_exporter::BountyExporter;
 
 pub async fn export_report(
@@ -18,7 +13,9 @@ pub async fn export_report(
     State(state): State<Arc<DashboardState>>,
     Json(req): Json<ExportRequest>,
 ) -> Response {
-    let all_findings: Vec<_> = state.targets.iter()
+    let all_findings: Vec<_> = state
+        .targets
+        .iter()
         .flat_map(|kv| kv.value().findings.iter().cloned().collect::<Vec<_>>())
         .collect();
 
@@ -27,8 +24,14 @@ pub async fn export_report(
 
     if let Some(ref webhook_url) = state.discord_webhook_url {
         let platform_name = req.platform.display_name();
-        let count = refs.iter()
-            .filter(|f| matches!(f.severity, crate::models::Severity::High | crate::models::Severity::Critical))
+        let count = refs
+            .iter()
+            .filter(|f| {
+                matches!(
+                    f.severity,
+                    crate::models::Severity::High | crate::models::Severity::Critical
+                )
+            })
             .count();
 
         let payload = serde_json::json!({
@@ -44,7 +47,11 @@ pub async fn export_report(
 
         let url = webhook_url.clone();
         tokio::spawn(async move {
-            let _ = reqwest::Client::new().post(&url).json(&payload).send().await;
+            let _ = reqwest::Client::new()
+                .post(&url)
+                .json(&payload)
+                .send()
+                .await;
         });
     }
 

@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use crate::utils::tool_detection::detect_tool;
 use crate::core::capability_layer::ScanLayer;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
+use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::info;
 
 pub struct WcvsScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for WcvsScanner {
 impl WcvsScanner {
     pub fn new() -> Self {
         let path = detect_tool("web-cache-vuln-scanner");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -59,7 +57,10 @@ impl ScannerPlugin for WcvsScanner {
     }
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("WcvsScanner: checking for web cache poisoning on {}", target.host);
+        info!(
+            "WcvsScanner: checking for web cache poisoning on {}",
+            target.host
+        );
 
         let base_url = if target.host.starts_with("http") {
             target.host.clone()
@@ -68,14 +69,18 @@ impl ScannerPlugin for WcvsScanner {
         };
 
         let child = Command::new(&self.binary_path)
-            .arg("-u").arg(&base_url)
+            .arg("-u")
+            .arg(&base_url)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .context("Failed to spawn web-cache-vuln-scanner")?;
 
-        let output = child.wait_with_output().await.context("Failed to wait for wcvs")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed to wait for wcvs")?;
         let mut findings = Vec::new();
 
         if output.status.success() {

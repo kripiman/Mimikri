@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::Severity;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ReportPlatform {

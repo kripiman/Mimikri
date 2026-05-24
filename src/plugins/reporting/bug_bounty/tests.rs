@@ -1,10 +1,16 @@
 use super::*;
-use crate::models::{Evidence, Finding, Category, Severity, AIAnalysis};
 use crate::models::findings::{FindingEvidence, PocDefinition, PocStrategy, TokenUsage};
+use crate::models::{AIAnalysis, Category, Evidence, Finding, Severity};
 use serde_json::json;
 
 fn bare_finding() -> Finding {
-    Finding::new("TEST_BARE", Category::Recon, Severity::High, "bare test", json!({}))
+    Finding::new(
+        "TEST_BARE",
+        Category::Recon,
+        Severity::High,
+        "bare test",
+        json!({}),
+    )
 }
 
 #[test]
@@ -15,8 +21,13 @@ fn test_triage_score_bare_is_zero() {
 
 #[test]
 fn test_triage_score_request_adds_15() {
-    let f = Finding::new("TEST_REQ", Category::Recon, Severity::High, "t",
-        json!({"request": "GET / HTTP/1.1\r\nHost: x.com\r\n\r\n"}));
+    let f = Finding::new(
+        "TEST_REQ",
+        Category::Recon,
+        Severity::High,
+        "t",
+        json!({"request": "GET / HTTP/1.1\r\nHost: x.com\r\n\r\n"}),
+    );
     assert_eq!(triage_readiness_score(&f), 15);
 }
 
@@ -75,8 +86,13 @@ fn test_triage_score_references_add_10() {
 
 #[test]
 fn test_triage_score_full_is_100() {
-    let mut f = Finding::new("TEST_FULL", Category::Recon, Severity::Critical, "full",
-        json!({"request": "GET / HTTP/1.1", "response": "HTTP/1.1 200 OK"}));
+    let mut f = Finding::new(
+        "TEST_FULL",
+        Category::Recon,
+        Severity::Critical,
+        "full",
+        json!({"request": "GET / HTTP/1.1", "response": "HTTP/1.1 200 OK"}),
+    );
     f.evidence.primary.as_mut().unwrap().verified = true;
     f.enrichment.ai_analysis = Some(AIAnalysis {
         summary: "".into(),
@@ -128,12 +144,16 @@ fn test_triage_score_threshold_auto_submit() {
     });
     f.enrichment.cvss_score = Some(7.5);
     let score = triage_readiness_score(&f);
-    assert!(score >= 70, "Expected auto-submit threshold met, got {score}");
+    assert!(
+        score >= 70,
+        "Expected auto-submit threshold met, got {score}"
+    );
 }
 
 #[test]
 fn test_build_curl_get() {
-    let raw = "GET /api/v1/user HTTP/1.1\r\nHost: example.com\r\nAuthorization: Bearer secret\r\n\r\n";
+    let raw =
+        "GET /api/v1/user HTTP/1.1\r\nHost: example.com\r\nAuthorization: Bearer secret\r\n\r\n";
     let curl = build_curl_from_raw(raw, "fallback.com").unwrap();
     assert!(curl.contains("-X GET"));
     assert!(curl.contains("-H \"Authorization: Bearer secret\""));

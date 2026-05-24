@@ -1,9 +1,9 @@
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
-use chrono::{Datelike, Utc, TimeZone};
-use tracing::{info, warn};
+use chrono::{Datelike, TimeZone, Utc};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::{info, warn};
 
 pub static METRIC_BUDGET_SKIPS: AtomicU64 = AtomicU64::new(0);
 pub static METRIC_UNKNOWN_SOURCE: AtomicU64 = AtomicU64::new(0);
@@ -32,7 +32,10 @@ pub(super) struct CreditManager {
 
 impl CreditManager {
     pub(super) fn new(budget: u32, window: BudgetWindow) -> Self {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         Self {
             budget,
             window,
@@ -42,13 +45,14 @@ impl CreditManager {
     }
 
     pub(super) fn can_spend_mem(&self, cost: u32) -> bool {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let last = self.last_reset.load(Ordering::Acquire);
 
         let should_reset = match self.window {
-            BudgetWindow::Daily => {
-                now.saturating_sub(last) >= 86400
-            }
+            BudgetWindow::Daily => now.saturating_sub(last) >= 86400,
             BudgetWindow::Monthly => {
                 if let Some(current_dt) = Utc.timestamp_opt(now as i64, 0).single() {
                     if let Some(last_dt) = Utc.timestamp_opt(last as i64, 0).single() {
@@ -89,7 +93,10 @@ impl CreditManager {
                     BudgetWindow::Daily => "Daily",
                     BudgetWindow::Monthly => "Monthly",
                 };
-                warn!("⚠️ SENTINEL: {} budget reached ({}/{}). Skipping high-cost API call.", window_str, current_used, self.budget);
+                warn!(
+                    "⚠️ SENTINEL: {} budget reached ({}/{}). Skipping high-cost API call.",
+                    window_str, current_used, self.budget
+                );
                 return false;
             }
         }
@@ -149,15 +156,42 @@ impl ApiBudgetRegistry {
     pub fn init(_config: &crate::utils::config::Config, pool: Option<sqlx::PgPool>) {
         let mut managers = HashMap::new();
 
-        let netlas_budget = std::env::var("NETLAS_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
-        let shodan_student_budget = std::env::var("SHODAN_STUDENT_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(100);
-        let shodan_paid_budget = std::env::var("SHODAN_PAID_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(100);
-        let securitytrails_budget = std::env::var("SECURITYTRAILS_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(50);
-        let criminalip_budget = std::env::var("CRIMINALIP_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
-        let zoomeye_budget = std::env::var("ZOOMEYE_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(10000);
-        let greynoise_budget = std::env::var("GREYNOISE_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
-        let fofa_budget = std::env::var("FOFA_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(10000);
-        let chaos_budget = std::env::var("CHAOS_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
+        let netlas_budget = std::env::var("NETLAS_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000);
+        let shodan_student_budget = std::env::var("SHODAN_STUDENT_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+        let shodan_paid_budget = std::env::var("SHODAN_PAID_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+        let securitytrails_budget = std::env::var("SECURITYTRAILS_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50);
+        let criminalip_budget = std::env::var("CRIMINALIP_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000);
+        let zoomeye_budget = std::env::var("ZOOMEYE_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10000);
+        let greynoise_budget = std::env::var("GREYNOISE_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000);
+        let fofa_budget = std::env::var("FOFA_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10000);
+        let chaos_budget = std::env::var("CHAOS_BUDGET")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000);
 
         managers.insert(
             "netlas".to_string(),
@@ -201,7 +235,9 @@ impl ApiBudgetRegistry {
     }
 
     pub fn get() -> &'static Self {
-        REGISTRY.get().expect("ApiBudgetRegistry must be initialized")
+        REGISTRY
+            .get()
+            .expect("ApiBudgetRegistry must be initialized")
     }
 
     pub async fn can_spend(&self, source: &str, cost: u32) -> bool {
@@ -217,7 +253,10 @@ impl ApiBudgetRegistry {
             }
             allowed
         } else {
-            warn!("⚠️ SENTINEL: Unknown budget source '{}'. Rejecting spend.", source);
+            warn!(
+                "⚠️ SENTINEL: Unknown budget source '{}'. Rejecting spend.",
+                source
+            );
             METRIC_UNKNOWN_SOURCE.fetch_add(1, Ordering::Relaxed);
             false
         }
@@ -231,15 +270,15 @@ mod tests {
     #[test]
     fn test_budget_lost_increment_on_panic() {
         let manager = CreditManager::new(5, BudgetWindow::Monthly);
-        
+
         let handle = std::thread::spawn(move || {
             let allowed = manager.can_spend_mem(1);
             assert!(allowed);
             panic!("worker panic simulation");
         });
-        
+
         let _ = handle.join();
-        
+
         let manager2 = CreditManager::new(5, BudgetWindow::Monthly);
         assert!(manager2.can_spend_mem(4));
         assert!(!manager2.can_spend_mem(2));
@@ -249,28 +288,28 @@ mod tests {
     async fn test_budget_two_workers_concurrent_startup() {
         let manager = std::sync::Arc::new(CreditManager::new(10, BudgetWindow::Monthly));
         let mut handles = vec![];
-        
+
         for _ in 0..10 {
             let m = manager.clone();
-            handles.push(tokio::spawn(async move {
-                m.can_spend_mem(1)
-            }));
+            handles.push(tokio::spawn(async move { m.can_spend_mem(1) }));
         }
-        
+
         let mut success_count = 0;
         for h in handles {
             if h.await.unwrap() {
                 success_count += 1;
             }
         }
-        
+
         assert_eq!(success_count, 10);
         assert!(!manager.can_spend_mem(1));
     }
 
     #[tokio::test]
     async fn test_database_budget_sync() {
-        let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://osintuser:WENYANULTRA_SECURE_PASS@localhost:5432/osintdb".to_string());
+        let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://osintuser:WENYANULTRA_SECURE_PASS@localhost:5432/osintdb".to_string()
+        });
         let pool = match sqlx::PgPool::connect(&db_url).await {
             Ok(p) => p,
             _ => {
@@ -286,7 +325,7 @@ mod tests {
             .await;
 
         let manager = CreditManager::new(5, BudgetWindow::Monthly);
-        
+
         let ok1 = manager.can_spend_db(&pool, "test_source", 3).await;
         assert!(ok1);
 

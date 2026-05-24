@@ -1,7 +1,7 @@
-pub mod profiles;
-pub mod policy;
 pub mod engine;
+pub mod policy;
+pub mod profiles;
 
-pub use profiles::{TlsProfile, HttpFingerprint, MutatedRequest};
+pub use engine::{EvasionAttempt, RequestContext, WafEvasionEngine};
 pub use policy::{EvasionStrategy, StochasticEvasionPolicy};
-pub use engine::{RequestContext, EvasionAttempt, WafEvasionEngine};
+pub use profiles::{HttpFingerprint, MutatedRequest, TlsProfile};

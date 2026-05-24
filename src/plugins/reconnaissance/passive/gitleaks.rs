@@ -1,12 +1,14 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category, PLUGIN_GITLEAKS, FINDING_GITLEAKS_SECRET};
+use crate::models::{
+    Category, Finding, Severity, TargetHost, FINDING_GITLEAKS_SECRET, PLUGIN_GITLEAKS,
+};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
+use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use tokio::process::Command;
-use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct GitleaksFinding {
@@ -35,9 +37,7 @@ impl Default for GitleaksScanner {
 impl GitleaksScanner {
     pub fn new() -> Self {
         let path = detect_tool("gitleaks");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -47,7 +47,6 @@ impl ScannerPlugin for GitleaksScanner {
         PLUGIN_GITLEAKS
     }
 
-    
     fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
@@ -65,23 +64,30 @@ impl ScannerPlugin for GitleaksScanner {
         Ok(crate::utils::check_tool_availability("gitleaks").await)
     }
 
-
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("GitleaksScanner: searching for secrets on {}", target.host);
 
-        let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file for Gitleaks")?;
+        let temp_file =
+            tempfile::NamedTempFile::new().context("Failed to create temp file for Gitleaks")?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
         let mut cmd = Command::new(&self.binary_path);
         cmd.arg("detect")
-           .arg("--source").arg(&target.host)
-           .arg("--report-format").arg("json")
-           .arg("--report-path").arg(&temp_path)
-           .stdin(Stdio::null())
-           .stdout(Stdio::null())
-           .stderr(Stdio::null());
+            .arg("--source")
+            .arg(&target.host)
+            .arg("--report-format")
+            .arg("json")
+            .arg("--report-path")
+            .arg(&temp_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
 
-        let status = cmd.spawn()?.wait().await.context("Failed to wait for gitleaks")?;
+        let status = cmd
+            .spawn()?
+            .wait()
+            .await
+            .context("Failed to wait for gitleaks")?;
 
         let mut findings = Vec::new();
 
@@ -89,8 +95,8 @@ impl ScannerPlugin for GitleaksScanner {
         if status.code() == Some(1) || status.success() {
             if let Ok(content) = tokio::fs::read_to_string(&temp_path).await {
                 if let Ok(leaks) = serde_json::from_str::<Vec<GitleaksFinding>>(&content) {
-                   for leak_obj in leaks {
-                       findings.push(Finding::new(
+                    for leak_obj in leaks {
+                        findings.push(Finding::new(
                            FINDING_GITLEAKS_SECRET,
                            Category::CredentialLeak,
                            Severity::Critical,
@@ -103,11 +109,15 @@ impl ScannerPlugin for GitleaksScanner {
                                "secret_preview": format!("{}...", &leak_obj.secret[..std::cmp::min(leak_obj.secret.len(), 10)])
                            })
                        ).with_tactical_path("Revoke the exposed secret and remove it from the source history."));
-                   }
+                    }
                 }
             }
         } else {
-            warn!("Gitleaks failed on {} with status {:?}", target.host, status.code());
+            warn!(
+                "Gitleaks failed on {} with status {:?}",
+                target.host,
+                status.code()
+            );
         }
 
         Ok(findings)

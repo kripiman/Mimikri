@@ -1,8 +1,8 @@
-use crate::models::{TargetHost, ScanMetadata};
 use super::DataSink;
+use crate::models::{ScanMetadata, TargetHost};
 use anyhow::Result;
-use std::sync::Arc;
 use async_trait::async_trait;
+use std::sync::Arc;
 
 /// A DataSink that writes findings to the activity log (timeline.jsonl).
 pub struct TimelineSink {
@@ -19,7 +19,14 @@ impl TimelineSink {
 impl DataSink for TimelineSink {
     async fn write(&mut self, target: &TargetHost) -> Result<()> {
         for finding in target.findings.iter() {
-            let _ = self.logger.log_finding(finding, crate::utils::activity_log::Actor::Sentinel, Some(&target.host)).await;
+            let _ = self
+                .logger
+                .log_finding(
+                    finding,
+                    crate::utils::activity_log::Actor::Sentinel,
+                    Some(&target.host),
+                )
+                .await;
         }
         Ok(())
     }

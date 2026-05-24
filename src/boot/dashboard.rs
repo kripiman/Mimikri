@@ -1,9 +1,9 @@
 use crate::boot::cli::Args;
-use mimikri::models::{TargetHost, TargetStatus};
 use mimikri::core::engine::RedTeamEngine;
+use mimikri::models::{TargetHost, TargetStatus};
 use mimikri::utils::config::Config;
-use tracing::{info, warn, error};
 use std::sync::Arc;
+use tracing::{error, info, warn};
 
 pub async fn setup_dashboard(
     args: &Args,
@@ -11,11 +11,13 @@ pub async fn setup_dashboard(
     engine: &RedTeamEngine,
     dashboard_findings_tx: tokio::sync::broadcast::Sender<mimikri::models::Finding>,
     dashboard_targets: Arc<dashmap::DashMap<String, TargetHost>>,
-    injection_tx: tokio::sync::mpsc::Sender<TargetHost>
+    injection_tx: tokio::sync::mpsc::Sender<TargetHost>,
 ) {
     if let Some(port) = args.dashboard {
-        use mimikri::core::web::{DashboardState, DashboardAuth, MissionRequest, generate_dashboard_token};
         use ed25519_dalek::SigningKey;
+        use mimikri::core::web::{
+            generate_dashboard_token, DashboardAuth, DashboardState, MissionRequest,
+        };
         use rand::RngCore;
 
         let (tx, targets) = (dashboard_findings_tx.clone(), dashboard_targets.clone());
@@ -67,11 +69,18 @@ pub async fn setup_dashboard(
                     }
                 };
 
-                info!("📡 [MISSION-QUEUE] Received mission for: {}. Injecting into pipeline...", target);
-                
-                let target_type = if target.contains("://") || target.contains('.') { mimikri::models::TargetType::Web }
-                else if target.contains(':') { mimikri::models::TargetType::Network }
-                else { mimikri::models::TargetType::Host };
+                info!(
+                    "📡 [MISSION-QUEUE] Received mission for: {}. Injecting into pipeline...",
+                    target
+                );
+
+                let target_type = if target.contains("://") || target.contains('.') {
+                    mimikri::models::TargetType::Web
+                } else if target.contains(':') {
+                    mimikri::models::TargetType::Network
+                } else {
+                    mimikri::models::TargetType::Host
+                };
 
                 let host = TargetHost {
                     host: target,
@@ -95,12 +104,15 @@ pub async fn setup_dashboard(
                     extra_data: Arc::new(serde_json::json!({})),
                     version: 0,
                     skip_heavy_scan: false,
-                    scan_id: None, 
+                    scan_id: None,
                     scope_id: (*cli_scope_id).clone(),
                 };
 
                 if let Err(e) = injection_tx_for_dashboard.send(host).await {
-                    error!("❌ [MISSION-QUEUE] Failed to inject target into pipeline: {}", e);
+                    error!(
+                        "❌ [MISSION-QUEUE] Failed to inject target into pipeline: {}",
+                        e
+                    );
                 }
             }
         });

@@ -1,11 +1,11 @@
 #[cfg(feature = "sovereign")]
-use crate::plugins::{ScannerPlugin, PluginMetadata, Capability, RiskLevel};
+use crate::models::{Finding, TargetHost};
 #[cfg(feature = "sovereign")]
-use crate::models::{TargetHost, Finding};
-#[cfg(feature = "sovereign")]
-use async_trait::async_trait;
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
 #[cfg(feature = "sovereign")]
 use anyhow::Result;
+#[cfg(feature = "sovereign")]
+use async_trait::async_trait;
 
 #[cfg(feature = "sovereign")]
 pub struct ScareCrowScanner;
@@ -13,7 +13,9 @@ pub struct ScareCrowScanner;
 #[cfg(feature = "sovereign")]
 #[async_trait]
 impl ScannerPlugin for ScareCrowScanner {
-    fn name(&self) -> &'static str { "scarecrow" }
+    fn name(&self) -> &'static str {
+        "scarecrow"
+    }
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: "ScareCrow".to_string(),
@@ -28,7 +30,7 @@ impl ScannerPlugin for ScareCrowScanner {
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::Evasion]
     }
-    
+
     async fn check_dependencies(&self) -> Result<bool> {
         Ok(crate::utils::tool_detection::check_tool_availability("ScareCrow").await)
     }

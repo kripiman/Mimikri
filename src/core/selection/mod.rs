@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use anyhow::{Context, Result};
 pub mod rubric;
 
 use self::rubric::ScopeDifficulty;
@@ -27,17 +27,18 @@ impl ProgramMetrics {
     pub fn calculate_roi_score(&self) -> f64 {
         let age_factor = self::rubric::get_age_factor(self.age_months);
         let diff_factor = self.difficulty.as_factor();
-        
+
         // Anti-Saturation proven bonus: Differentiates between hot fresh targets and forgotten gems.
-        let proven_bonus = self::rubric::calculate_proven_bonus(self.age_months, self.resolved_reports);
+        let proven_bonus =
+            self::rubric::calculate_proven_bonus(self.age_months, self.resolved_reports);
 
         // Cost proxy = age * difficulty. Guard against zero div.
         let cost = (age_factor as f64 * diff_factor as f64).max(0.1);
-        
+
         // ROI = (Reward * Probability * Bonus) / Cost
         // NOTE: High payout often correlates with higher rejection rates in reality.
         let score = (self.median_payout * self.success_rate * proven_bonus) / cost;
-        
+
         if score.is_nan() || score.is_infinite() {
             0.0
         } else {
@@ -47,7 +48,7 @@ impl ProgramMetrics {
 }
 
 /// Orchestrates program selection and ranking based on ROI metrics.
-/// 
+///
 /// NOTE: Currently stateless. In future phases, this will maintain:
 /// - Cache of program metrics to avoid redundant file I/O.
 /// - Dynamic weights from `CorrelationEngine` (Fase 4 feedback loop).
@@ -61,7 +62,8 @@ impl ProgramAnalyzer {
 
     /// Ranks a list of programs by their ROI score.
     pub fn rank_programs(&self, programs: Vec<ProgramMetrics>) -> Vec<(String, f64)> {
-        let mut ranked: Vec<_> = programs.into_iter()
+        let mut ranked: Vec<_> = programs
+            .into_iter()
             .map(|p| {
                 let score = p.calculate_roi_score();
                 (p.name, score)
@@ -107,7 +109,7 @@ mod tests {
 
         let analyzer = ProgramAnalyzer::new();
         let ranked = analyzer.rank_programs(vec![old.clone(), fresh.clone()]);
-        
+
         assert_eq!(ranked[0].0, "fresh_program");
         assert!(ranked[0].1 > ranked[1].1);
     }
@@ -161,7 +163,7 @@ mod tests {
 
         let analyzer = ProgramAnalyzer::new();
         let ranked = analyzer.rank_programs(vec![saturated.clone(), forgotten_gem.clone()]);
-        
+
         assert_eq!(ranked[0].0, "forgotten_gem");
         assert!(ranked[0].1 > ranked[1].1); // 1.5x bonus vs 1.0x
     }

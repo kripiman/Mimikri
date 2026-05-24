@@ -1,4 +1,4 @@
-use super::schema::{BlackArchTool, ToolSchema, FlagSchema, ResourceCost};
+use super::schema::{BlackArchTool, FlagSchema, ResourceCost, ToolSchema};
 use regex::Regex;
 
 pub(crate) fn parse_help_output(
@@ -18,7 +18,8 @@ pub(crate) fn parse_help_output(
 }
 
 fn extract_synopsis(lines: &[&str], tool_info: Option<&BlackArchTool>) -> String {
-    lines.iter()
+    lines
+        .iter()
         .find(|l| !l.trim().is_empty())
         .map(|l| l.trim().to_string())
         .unwrap_or_else(|| tool_info.map(|t| t.description.clone()).unwrap_or_default())
@@ -26,7 +27,8 @@ fn extract_synopsis(lines: &[&str], tool_info: Option<&BlackArchTool>) -> String
 
 fn extract_version(lines: &[&str]) -> Option<String> {
     let version_re = Regex::new(r"(?i)(?:v(?:ersion)?\s*)?(\d+\.\d+(?:\.\d+)?)").ok()?;
-    lines.iter()
+    lines
+        .iter()
         .take(5)
         .find_map(|l| version_re.find(l).map(|m| m.as_str().to_string()))
 }
@@ -74,9 +76,15 @@ fn parse_line(
     re_s: &Option<Regex>,
     re_sv: &Option<Regex>,
 ) -> Option<FlagSchema> {
-    if let Some(f) = try_comb(line, re_c) { return Some(f); }
-    if let Some(f) = try_long(line, re_l) { return Some(f); }
-    if let Some(f) = try_short(line, re_s) { return Some(f); }
+    if let Some(f) = try_comb(line, re_c) {
+        return Some(f);
+    }
+    if let Some(f) = try_long(line, re_l) {
+        return Some(f);
+    }
+    if let Some(f) = try_short(line, re_s) {
+        return Some(f);
+    }
     try_sv(line, re_sv)
 }
 
@@ -130,12 +138,15 @@ fn try_sv(line: &str, re: &Option<Regex>) -> Option<FlagSchema> {
 
 fn flag_takes_value(desc: &str, line: &str) -> bool {
     let indicators = ["<", ">", "FILE", "PATH", "NUM", "PORT", "URL", "HOST", "="];
-    indicators.iter().any(|i| desc.to_uppercase().contains(i) || line.contains(i))
+    indicators
+        .iter()
+        .any(|i| desc.to_uppercase().contains(i) || line.contains(i))
 }
 
 fn extract_default(desc: &str) -> Option<String> {
     let re = Regex::new(r"(?i)(?:\(|\[)default[:\s]+([^\)\]]+)(?:\)|\])").ok()?;
-    re.captures(desc).and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+    re.captures(desc)
+        .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
 }
 
 #[cfg(test)]
@@ -145,7 +156,8 @@ mod tests {
 
     #[test]
     fn test_parse_help_output_extracts_flags() {
-        let mock_help = "Nmap 7.93\nUsage: nmap\n  -p <port>  (default: 1-1024)\n  -oN <file> xml greppable\n";
+        let mock_help =
+            "Nmap 7.93\nUsage: nmap\n  -p <port>  (default: 1-1024)\n  -oN <file> xml greppable\n";
         let tool_info = BlackArchTool {
             name: "nmap".to_string(),
             category: "scanner".to_string(),
@@ -159,15 +171,24 @@ mod tests {
         assert!(schema.output_formats.contains(&"xml".to_string()));
         assert!(schema.output_formats.contains(&"greppable".to_string()));
         assert_eq!(schema.resource_cost, ResourceCost::Heavy);
-        let port_flag = schema.flags.iter().find(|f| f.short.as_deref() == Some("-p"));
+        let port_flag = schema
+            .flags
+            .iter()
+            .find(|f| f.short.as_deref() == Some("-p"));
         assert!(port_flag.is_some());
         assert!(port_flag.unwrap().takes_value);
     }
 
     #[test]
     fn test_extract_default_value() {
-        assert_eq!(extract_default("Specify ports (default: 1-1024)"), Some("1-1024".to_string()));
-        assert_eq!(extract_default("Set timeout [Default: 30]"), Some("30".to_string()));
+        assert_eq!(
+            extract_default("Specify ports (default: 1-1024)"),
+            Some("1-1024".to_string())
+        );
+        assert_eq!(
+            extract_default("Set timeout [Default: 30]"),
+            Some("30".to_string())
+        );
         assert_eq!(extract_default("Enable verbose mode"), None);
     }
 
@@ -175,14 +196,33 @@ mod tests {
     fn test_flag_takes_value_heuristic() {
         assert!(flag_takes_value("Specify <PORT> to scan", "  -p <PORT>"));
         assert!(flag_takes_value("Output FILE path", "  -o FILE"));
-        assert!(!flag_takes_value("Enable verbose mode", "  -v  Enable verbose mode"));
+        assert!(!flag_takes_value(
+            "Enable verbose mode",
+            "  -v  Enable verbose mode"
+        ));
     }
 
     #[test]
     fn test_resource_cost_classification() {
-        let scanner = BlackArchTool { name: "nmap".to_string(), category: "scanner".to_string(), description: "".to_string(), capabilities: vec![] };
-        assert_eq!(parse_help_output("nmap", "help", Some(&scanner)).resource_cost, ResourceCost::Heavy);
-        let webapp = BlackArchTool { name: "sqlmap".to_string(), category: "webapp".to_string(), description: "".to_string(), capabilities: vec![] };
-        assert_eq!(parse_help_output("sqlmap", "help", Some(&webapp)).resource_cost, ResourceCost::Medium);
+        let scanner = BlackArchTool {
+            name: "nmap".to_string(),
+            category: "scanner".to_string(),
+            description: "".to_string(),
+            capabilities: vec![],
+        };
+        assert_eq!(
+            parse_help_output("nmap", "help", Some(&scanner)).resource_cost,
+            ResourceCost::Heavy
+        );
+        let webapp = BlackArchTool {
+            name: "sqlmap".to_string(),
+            category: "webapp".to_string(),
+            description: "".to_string(),
+            capabilities: vec![],
+        };
+        assert_eq!(
+            parse_help_output("sqlmap", "help", Some(&webapp)).resource_cost,
+            ResourceCost::Medium
+        );
     }
 }

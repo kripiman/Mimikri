@@ -1,9 +1,9 @@
-use async_trait::async_trait;
-use mimikri::plugins::{ScannerPlugin, PluginMetadata, PluginStatus, Capability};
-use mimikri::models::{TargetHost, Finding};
 use anyhow::Result;
-use std::sync::Arc;
+use async_trait::async_trait;
+use mimikri::models::{Finding, TargetHost};
+use mimikri::plugins::{Capability, PluginMetadata, PluginStatus, ScannerPlugin};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 struct MockMonitor {
     status: Arc<tokio::sync::Mutex<PluginStatus>>,
@@ -12,7 +12,9 @@ struct MockMonitor {
 
 #[async_trait]
 impl ScannerPlugin for MockMonitor {
-    fn name(&self) -> &'static str { "mock_monitor" }
+    fn name(&self) -> &'static str {
+        "mock_monitor"
+    }
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: "mock".to_string(),
@@ -20,9 +22,15 @@ impl ScannerPlugin for MockMonitor {
             ..Default::default()
         }
     }
-    fn capabilities(&self) -> Vec<Capability> { vec![] }
-    async fn check_dependencies(&self) -> Result<bool> { Ok(true) }
-    async fn scan(&self, _: &TargetHost) -> Result<Vec<Finding>> { Ok(vec![]) }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![]
+    }
+    async fn check_dependencies(&self) -> Result<bool> {
+        Ok(true)
+    }
+    async fn scan(&self, _: &TargetHost) -> Result<Vec<Finding>> {
+        Ok(vec![])
+    }
     async fn poll_status(&self) -> Result<PluginStatus> {
         Ok(self.status.lock().await.clone())
     }
@@ -35,8 +43,10 @@ impl ScannerPlugin for MockMonitor {
 #[tokio::test]
 async fn test_monitor_stop_on_crash() {
     let stop_called = Arc::new(AtomicU32::new(0));
-    let status = Arc::new(tokio::sync::Mutex::new(PluginStatus::Crashed("Test crash".to_string())));
-    
+    let status = Arc::new(tokio::sync::Mutex::new(PluginStatus::Crashed(
+        "Test crash".to_string(),
+    )));
+
     let monitor = MockMonitor {
         status: status.clone(),
         stop_called: stop_called.clone(),

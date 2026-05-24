@@ -1,14 +1,11 @@
-use axum::{
-    extract::FromRequestParts,
-    http::StatusCode,
-};
-use axum::http::request::Parts;
+use super::models::{DashboardAuth, MissionRequest};
+use crate::models::{Finding, TargetHost};
 use axum::async_trait;
+use axum::http::request::Parts;
+use axum::{extract::FromRequestParts, http::StatusCode};
+use ed25519_dalek::{Signature, Verifier};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
-use ed25519_dalek::{Signature, Verifier};
-use crate::models::{TargetHost, Finding};
-use super::models::{DashboardAuth, MissionRequest};
 
 pub struct DashboardState {
     pub targets: Arc<dashmap::DashMap<String, TargetHost>>,
@@ -32,39 +29,67 @@ impl FromRequestParts<Arc<DashboardState>> for ValidatedOperator {
         parts: &mut Parts,
         state: &Arc<DashboardState>,
     ) -> Result<Self, (StatusCode, String)> {
-        let auth_header = parts.headers.get("Authorization")
+        let auth_header = parts
+            .headers
+            .get("Authorization")
             .and_then(|h| h.to_str().ok())
-            .ok_or((StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()))?;
+            .ok_or((
+                StatusCode::UNAUTHORIZED,
+                "Missing Authorization header".to_string(),
+            ))?;
 
         if !auth_header.starts_with("Bearer ") {
-            return Err((StatusCode::UNAUTHORIZED, "Invalid Authorization header format".to_string()));
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Invalid Authorization header format".to_string(),
+            ));
         }
 
         let token_hex = &auth_header[7..];
-        let token_bytes = hex::decode(token_hex)
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid token encoding".to_string()))?;
+        let token_bytes = hex::decode(token_hex).map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Invalid token encoding".to_string(),
+            )
+        })?;
 
-        if token_bytes.len() != 96 { 
+        if token_bytes.len() != 96 {
             return Err((StatusCode::UNAUTHORIZED, "Invalid token length".to_string()));
         }
 
         let (payload, signature_bytes) = token_bytes.split_at(32);
-        let signature = Signature::from_slice(signature_bytes)
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid signature format".to_string()))?;
+        let signature = Signature::from_slice(signature_bytes).map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Invalid signature format".to_string(),
+            )
+        })?;
 
-        state.auth.verifying_key.verify(payload, &signature)
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid cryptographic signature".to_string()))?;
+        state
+            .auth
+            .verifying_key
+            .verify(payload, &signature)
+            .map_err(|_| {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    "Invalid cryptographic signature".to_string(),
+                )
+            })?;
 
         let session_id = &payload[0..16];
         if session_id != state.auth.session_id {
-            return Err((StatusCode::UNAUTHORIZED, "Token session mismatch".to_string()));
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Token session mismatch".to_string(),
+            ));
         }
 
         let expiry_bytes = &payload[24..32];
         let expiry = u64::from_be_bytes(expiry_bytes.try_into().unwrap());
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap().as_secs();
+            .unwrap()
+            .as_secs();
 
         if now > expiry {
             return Err((StatusCode::UNAUTHORIZED, "Token has expired".to_string()));

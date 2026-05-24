@@ -1,14 +1,14 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category, constants::*};
+use crate::models::{constants::*, Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static EXECUTED: AtomicBool = AtomicBool::new(false);
-use crate::utils::{detect_tool, check_tool_availability};
-use async_trait::async_trait;
+use crate::utils::{check_tool_availability, detect_tool};
 use anyhow::Result;
-use tracing::{info, warn};
+use async_trait::async_trait;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct RoadReconScanner {
     binary_path: String,
@@ -23,9 +23,7 @@ impl Default for RoadReconScanner {
 impl RoadReconScanner {
     pub fn new() -> Self {
         let path = detect_tool("roadrecon");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 
     fn get_creds(&self) -> (Option<String>, Option<String>, Option<String>) {
@@ -46,7 +44,8 @@ impl ScannerPlugin for RoadReconScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "ROADrecon: Azure AD exploration and misconfiguration discovery tool.".to_string(),
+            description: "ROADrecon: Azure AD exploration and misconfiguration discovery tool."
+                .to_string(),
             target_type: TargetType::Host,
             risk_level: RiskLevel::High,
             layer: crate::core::capability_layer::ScanLayer::PostExploitation,
@@ -91,9 +90,12 @@ impl ScannerPlugin for RoadReconScanner {
         // 1. Auth
         let auth_status = Command::new(&self.binary_path)
             .arg("auth")
-            .arg("--client-id").arg(&client_id)
-            .arg("--tenant").arg(&tenant_id)
-            .arg("--client-secret").arg(&client_secret)
+            .arg("--client-id")
+            .arg(&client_id)
+            .arg("--tenant")
+            .arg(&tenant_id)
+            .arg("--client-secret")
+            .arg(&client_secret)
             .status()
             .await?;
 
@@ -126,7 +128,7 @@ impl ScannerPlugin for RoadReconScanner {
         let mut findings = Vec::new();
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            
+
             if stdout.contains("Conditional Access") || stdout.contains("Policy") {
                 findings.push(Finding::new(
                     FINDING_AZURE_POLICIES_DUMPED,
@@ -136,7 +138,7 @@ impl ScannerPlugin for RoadReconScanner {
                     serde_json::json!({
                         "tenant_id": tenant_id,
                         "raw_output": stdout.chars().take(2000).collect::<String>(),
-                    })
+                    }),
                 ));
             }
         }

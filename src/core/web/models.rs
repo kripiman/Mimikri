@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use ed25519_dalek::VerifyingKey;
 use crate::models::ReportPlatform;
+use ed25519_dalek::VerifyingKey;
+use serde::{Deserialize, Serialize};
 
 pub struct DashboardAuth {
     pub verifying_key: VerifyingKey,

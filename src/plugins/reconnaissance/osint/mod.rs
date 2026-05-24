@@ -1,9 +1,9 @@
+pub mod alterx;
 pub mod amass;
+pub mod bbscope;
+pub mod engine;
+pub mod puredns;
+pub mod shuffledns;
+pub mod sovereign_recon;
 pub mod subfinder;
 pub mod uncover;
-pub mod engine;
-pub mod sovereign_recon;
-pub mod alterx;
-pub mod puredns;
-pub mod bbscope;
-pub mod shuffledns;

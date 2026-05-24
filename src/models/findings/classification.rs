@@ -57,7 +57,7 @@ pub enum Category {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsolidationUrgency {
-    Immediate,   // 0-7 days
-    ShortTerm,   // 30 days
-    LongTerm,    // 90+ days
+    Immediate, // 0-7 days
+    ShortTerm, // 30 days
+    LongTerm,  // 90+ days
 }

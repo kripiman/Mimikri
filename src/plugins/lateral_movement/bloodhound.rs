@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use std::sync::Arc;
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
 use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
+use std::sync::Arc;
 use tracing::{info, warn};
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
 
 pub struct BloodHoundScanner<M: ExecutorMode> {
     binary_path: String,
@@ -14,7 +14,10 @@ pub struct BloodHoundScanner<M: ExecutorMode> {
 }
 
 impl<M: ExecutorMode> BloodHoundScanner<M> {
-    pub fn new(executor: Arc<StealthExecutor<M>>, ce: Arc<tokio::sync::Mutex<crate::core::correlation::CorrelationEngine>>) -> Self {
+    pub fn new(
+        executor: Arc<StealthExecutor<M>>,
+        ce: Arc<tokio::sync::Mutex<crate::core::correlation::CorrelationEngine>>,
+    ) -> Self {
         let path = detect_tool("bloodhound-python");
         Self {
             binary_path: path,
@@ -24,10 +27,13 @@ impl<M: ExecutorMode> BloodHoundScanner<M> {
     }
 
     async fn ingest_results(&self) -> Result<()> {
-        info!("🔱 V14.1 SOVEREIGN: Commencing BloodHound result ingestion into CorrelationEngine...");
-        
-        let ingestor = crate::core::correlation::ad_ingestor::AdIngestor::new(self.correlation_engine.clone());
-        
+        info!(
+            "🔱 V14.1 SOVEREIGN: Commencing BloodHound result ingestion into CorrelationEngine..."
+        );
+
+        let ingestor =
+            crate::core::correlation::ad_ingestor::AdIngestor::new(self.correlation_engine.clone());
+
         // Find generated JSON files in the current directory (default for bloodhound-python)
         let entries = std::fs::read_dir(".")?;
         for entry in entries {
@@ -49,13 +55,15 @@ impl<M: ExecutorMode> BloodHoundScanner<M> {
                         ingestor.ingest_nodes(&path_str, "OU").await?;
                     } else if lower_path.contains("domains.json") {
                         ingestor.ingest_nodes(&path_str, "Domain").await?;
-                    } else if lower_path.contains("edges.json") || lower_path.contains("relationships.json") {
+                    } else if lower_path.contains("edges.json")
+                        || lower_path.contains("relationships.json")
+                    {
                         ingestor.ingest_edges(&path_str).await?;
                     }
                 }
             }
         }
-        
+
         Ok(())
     }
 }
@@ -64,7 +72,7 @@ impl<M: ExecutorMode> ScannerPlugin for BloodHoundScanner<M> {
     fn name(&self) -> &'static str {
         crate::models::PLUGIN_BLOODHOUND
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "BloodHound AD collection plugin: Automates ingest of infrastructure topology securely.".to_string(),
@@ -88,28 +96,39 @@ impl<M: ExecutorMode> ScannerPlugin for BloodHoundScanner<M> {
         Ok(crate::utils::check_tool_availability("bloodhound").await)
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("🔱 V14.1 SOVEREIGN: Collecting AD data from {} via StealthExecutor...", target.host);
-        
+        info!(
+            "🔱 V14.1 SOVEREIGN: Collecting AD data from {} via StealthExecutor...",
+            target.host
+        );
+
         // BUG-2: Removed --zip. bloodhound-python defaults to individual JSON files.
         // --zip produces a ZIP archive; ingest_results() reads .json → zero match → silent fail.
         let args = vec![
-            "-d".to_string(), target.host.clone(),
-            "-c".to_string(), "All".to_string(),
+            "-d".to_string(),
+            target.host.clone(),
+            "-c".to_string(),
+            "All".to_string(),
         ];
 
         info!("🛡️ V14.1 SOVEREIGN: Dispatching proxied BloodHound collection via StealthExecutor.");
-        let output = self.executor.execute_and_wait(&self.binary_path, args).await?;
-        
+        let output = self
+            .executor
+            .execute_and_wait(&self.binary_path, args)
+            .await?;
+
         let mut findings = Vec::new();
         let content = String::from_utf8_lossy(&output.stdout);
-        
+
         if output.status.success() {
             findings.push(Finding::new(
                 "AD-DATA-COLLECTED",
                 Category::Windows,
                 Severity::Info,
-                &format!("Active Directory data successfully collected from {}.", target.host),
-                serde_json::json!({ "stdout": content.trim() })
+                &format!(
+                    "Active Directory data successfully collected from {}.",
+                    target.host
+                ),
+                serde_json::json!({ "stdout": content.trim() }),
             ));
 
             // V14.1 Ingestion Pipeline

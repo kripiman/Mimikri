@@ -10,7 +10,7 @@ mod tests {
             .with_status(ObjectiveStatus::Completed);
         let obj2 = Objective::new("OBJ-002", "Service Enum", "Scan ports", ObjectivePhase::Recon)
             .with_status(ObjectiveStatus::Completed);
-        
+
         // OBJ-003 depende de obj1 Y obj2
         let obj3 = Objective::new("OBJ-003", "Vuln Scan", "Deep scan", ObjectivePhase::Recon)
             .add_dependency("OBJ-001")
@@ -35,7 +35,7 @@ mod tests {
             .with_status(ObjectiveStatus::Completed);
         let obj2 = Objective::new("OBJ-002", "Exploit B", "Try B", ObjectivePhase::InitialAccess)
             .with_status(ObjectiveStatus::Pending); // Todavía pendiente
-        
+
         let obj3 = Objective::new("OBJ-003", "Pivot", "Lateral movement", ObjectivePhase::LateralMovement)
             .add_dependency("OBJ-001")
             .add_dependency("OBJ-002");

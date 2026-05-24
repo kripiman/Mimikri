@@ -1,13 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
 use std::process::Stdio;
 use tokio::process::Command;
-
-
+use tracing::{info, warn};
 
 pub struct ArjunScanner {
     binary_path: String,
@@ -22,9 +20,7 @@ impl Default for ArjunScanner {
 impl ArjunScanner {
     pub fn new() -> Self {
         let path = detect_tool("arjun");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -34,8 +30,7 @@ impl ScannerPlugin for ArjunScanner {
         crate::models::PLUGIN_ARJUN
     }
 
-    
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -50,7 +45,9 @@ impl ScannerPlugin for ArjunScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("webapp".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -59,7 +56,6 @@ impl ScannerPlugin for ArjunScanner {
     async fn check_dependencies(&self) -> Result<bool> {
         Ok(crate::utils::check_tool_availability("arjun").await)
     }
-
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("ArjunScanner: launching scan against {}", target.host);
@@ -70,12 +66,15 @@ impl ScannerPlugin for ArjunScanner {
             format!("http://{}", target.host)
         };
 
-        let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file for Arjun")?;
+        let temp_file =
+            tempfile::NamedTempFile::new().context("Failed to create temp file for Arjun")?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
         let mut child = Command::new(&self.binary_path)
-            .arg("-u").arg(&url)
-            .arg("-oJ").arg(&temp_path)
+            .arg("-u")
+            .arg(&url)
+            .arg("-oJ")
+            .arg(&temp_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -94,17 +93,24 @@ impl ScannerPlugin for ArjunScanner {
             // Arjun JSON output: {"params": ["id", "user", ...]}
             if let Ok(res) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(params) = res.get("params").and_then(|p| p.as_array()) {
-                    let param_list: Vec<String> = params.iter().filter_map(|p| p.as_str().map(|s| s.to_string())).collect();
+                    let param_list: Vec<String> = params
+                        .iter()
+                        .filter_map(|p| p.as_str().map(|s| s.to_string()))
+                        .collect();
                     if !param_list.is_empty() {
                         findings.push(Finding::new(
                             crate::models::FINDING_HIDDEN_PARAMS,
                             Category::TechnologyStack,
                             Severity::Info,
-                            &format!("Hidden HTTP parameters discovered for {}: {}", url, param_list.join(", ")),
+                            &format!(
+                                "Hidden HTTP parameters discovered for {}: {}",
+                                url,
+                                param_list.join(", ")
+                            ),
                             serde_json::json!({
                                 "url": url,
                                 "parameters": param_list,
-                            })
+                            }),
                         ));
                     }
                 }

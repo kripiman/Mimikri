@@ -1,7 +1,7 @@
+use crate::models::{Category, Finding, Severity};
+use crate::plugins::{PluginStatus, ScannerPlugin};
 use std::sync::Arc;
-use tracing::{info, warn, error};
-use crate::models::{Finding, Category, Severity};
-use crate::plugins::{ScannerPlugin, PluginStatus};
+use tracing::{error, info, warn};
 
 pub async fn run_monitor_loop(
     plugins: Arc<Vec<Box<dyn ScannerPlugin>>>,
@@ -24,7 +24,7 @@ pub async fn run_monitor_loop(
                                 if *count < 3 {
                                     warn!("🔄 V15.1 MONITOR: Plugin '{}' crashed ({}). Restarting (Attempt {}/3)...", p.name(), reason, *count + 1);
                                     *count += 1;
-                                    
+
                                     if let Err(e) = p.stop().await {
                                         error!("❌ V15.1 MONITOR: Failed to stop/cleanup plugin '{}': {}", p.name(), e);
                                     }

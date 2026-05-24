@@ -2,14 +2,14 @@
 // 🔑 SecretFinder: Sensitive data discovery in JS files
 // ⚡ Offensive reconnaissance for finding leaked credentials
 
-use async_trait::async_trait;
-use crate::models::{TargetHost, Finding, Category, Severity};
-use crate::plugins::{ScannerPlugin, PluginMetadata, Capability, RiskLevel};
 use crate::core::capability_layer::ScanLayer;
-use crate::models::constants::{PLUGIN_SECRETFINDER, FINDING_JS_SECRET};
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
+use crate::models::constants::{FINDING_JS_SECRET, PLUGIN_SECRETFINDER};
+use crate::models::{Category, Finding, Severity, TargetHost};
 use crate::plugins::GlobalConfig;
-use anyhow::{Result, Context};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
+use anyhow::{Context, Result};
+use async_trait::async_trait;
 use std::sync::Arc;
 
 pub struct SecretFinderScanner<M: ExecutorMode> {
@@ -33,7 +33,9 @@ impl<M: ExecutorMode> ScannerPlugin for SecretFinderScanner<M> {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "Scans Javascript files for sensitive data like API keys, tokens, and credentials.".to_string(),
+            description:
+                "Scans Javascript files for sensitive data like API keys, tokens, and credentials."
+                    .to_string(),
             target_type: crate::models::TargetType::Web,
             risk_level: RiskLevel::Medium,
             layer: ScanLayer::Scanning,
@@ -45,7 +47,9 @@ impl<M: ExecutorMode> ScannerPlugin for SecretFinderScanner<M> {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("recon".to_string()),
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -62,7 +66,7 @@ impl<M: ExecutorMode> ScannerPlugin for SecretFinderScanner<M> {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         let js_files = if target.host.ends_with(".js") {
             vec![target.host.clone()]
         } else if let Some(discovered) = target.extra_data.get("discovered_urls") {
@@ -76,10 +80,19 @@ impl<M: ExecutorMode> ScannerPlugin for SecretFinderScanner<M> {
         };
 
         for js_url in js_files {
-            let output = self.executor.execute_and_wait(
-                "SecretFinder",
-                vec!["-i".to_string(), js_url.clone(), "-o".to_string(), "cli".to_string()],
-            ).await.context("Failed to execute SecretFinder")?;
+            let output = self
+                .executor
+                .execute_and_wait(
+                    "SecretFinder",
+                    vec![
+                        "-i".to_string(),
+                        js_url.clone(),
+                        "-o".to_string(),
+                        "cli".to_string(),
+                    ],
+                )
+                .await
+                .context("Failed to execute SecretFinder")?;
 
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -88,19 +101,22 @@ impl<M: ExecutorMode> ScannerPlugin for SecretFinderScanner<M> {
                     if line.is_empty() || !line.contains("->") {
                         continue;
                     }
-                    
-                    findings.push(Finding::new(
-                        FINDING_JS_SECRET,
-                        Category::Vulnerability,
-                        Severity::Medium,
-                        &format!("Found secret in {}: {}", js_url, line),
-                        serde_json::json!({
-                            "source": js_url,
-                            "match": line,
-                            "secret": line.to_string(),
-                            "tool": "SecretFinder"
-                        })
-                    ).with_blackarch_category("recon"));
+
+                    findings.push(
+                        Finding::new(
+                            FINDING_JS_SECRET,
+                            Category::Vulnerability,
+                            Severity::Medium,
+                            &format!("Found secret in {}: {}", js_url, line),
+                            serde_json::json!({
+                                "source": js_url,
+                                "match": line,
+                                "secret": line.to_string(),
+                                "tool": "SecretFinder"
+                            }),
+                        )
+                        .with_blackarch_category("recon"),
+                    );
                 }
             }
         }

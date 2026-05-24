@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, RiskLevel, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
+use serde::Deserialize;
 use std::process::Stdio;
 use tokio::process::Command;
-use serde::Deserialize;
+use tracing::{info, warn};
 
 #[derive(Debug, Deserialize)]
 struct FfufResult {
@@ -42,8 +42,7 @@ impl ScannerPlugin for FfufScanner {
         crate::models::PLUGIN_FFUF
     }
 
-    
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -58,7 +57,9 @@ impl ScannerPlugin for FfufScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("webapp".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::WebFuzzing]
@@ -67,7 +68,6 @@ impl ScannerPlugin for FfufScanner {
     async fn check_dependencies(&self) -> Result<bool> {
         Ok(crate::utils::check_tool_availability("ffuf").await)
     }
-
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("FfufScanner: launching scan against {}", target.host);
@@ -78,14 +78,19 @@ impl ScannerPlugin for FfufScanner {
             format!("http://{}", target.host)
         };
 
-        let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file for Ffuf")?;
+        let temp_file =
+            tempfile::NamedTempFile::new().context("Failed to create temp file for Ffuf")?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
         let mut child = Command::new(&self.binary_path)
-            .arg("-u").arg(format!("{}/FUZZ", url))
-            .arg("-w").arg(&self.wordlist)
-            .arg("-of").arg("json")
-            .arg("-o").arg(&temp_path)
+            .arg("-u")
+            .arg(format!("{}/FUZZ", url))
+            .arg("-w")
+            .arg(&self.wordlist)
+            .arg("-of")
+            .arg("json")
+            .arg("-o")
+            .arg(&temp_path)
             .arg("-s") // Silent
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -108,13 +113,16 @@ impl ScannerPlugin for FfufScanner {
                         &format!("FFUF-RES-{}", item.status),
                         Category::Recon,
                         Severity::Info,
-                        &format!("Discovered resource: {} (Status: {}, Length: {})", item.url, item.status, item.length),
+                        &format!(
+                            "Discovered resource: {} (Status: {}, Length: {})",
+                            item.url, item.status, item.length
+                        ),
                         serde_json::json!({
                             "url": item.url,
                             "status": item.status,
                             "length": item.length,
                             "words": item.words,
-                        })
+                        }),
                     ));
                 }
             }

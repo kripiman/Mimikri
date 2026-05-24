@@ -1,7 +1,7 @@
-/// token_optimizer/optimizer.rs — PromptOptimizer implementation and its unit tests.
-use regex::Regex;
 use super::strategies::*;
 use super::OptimizationLevel;
+/// token_optimizer/optimizer.rs — PromptOptimizer implementation and its unit tests.
+use regex::Regex;
 
 pub struct PromptOptimizer {
     strategies: Vec<Box<dyn OptimizationStrategy>>,
@@ -32,8 +32,10 @@ impl PromptOptimizer {
     }
 
     pub fn optimize(&self, input: &str, level: OptimizationLevel) -> String {
-        if level == OptimizationLevel::Off { return input.to_string(); }
-        
+        if level == OptimizationLevel::Off {
+            return input.to_string();
+        }
+
         let keep_pattern = format!(
             r"{}(?s:.*?){}",
             regex::escape(super::PROTECTED_TAG_START),
@@ -64,7 +66,11 @@ impl PromptOptimizer {
     pub fn savings_tokens(original: &str, optimized: &str) -> u64 {
         let orig = original.len();
         let opt = optimized.len();
-        if opt < orig { ((orig - opt) / 4) as u64 } else { 0 }
+        if opt < orig {
+            ((orig - opt) / 4) as u64
+        } else {
+            0
+        }
     }
 }
 
@@ -76,7 +82,10 @@ mod tests {
     fn test_verbosity_reducer_no_hot_compile() {
         let opt = PromptOptimizer::new();
         for _ in 0..100 {
-            let r = opt.optimize("in order to perform an audit due to the fact that it is important to", OptimizationLevel::Full);
+            let r = opt.optimize(
+                "in order to perform an audit due to the fact that it is important to",
+                OptimizationLevel::Full,
+            );
             assert!(r.contains("audit"));
             assert!(!r.contains("in order to"));
         }
@@ -93,7 +102,10 @@ mod tests {
     #[test]
     fn test_synonym_mapper() {
         let opt = PromptOptimizer::new();
-        let r = opt.optimize("vulnerability configuration infrastructure", OptimizationLevel::Full);
+        let r = opt.optimize(
+            "vulnerability configuration infrastructure",
+            OptimizationLevel::Full,
+        );
         assert!(r.contains("vuln"));
         assert!(r.contains("config"));
         assert!(r.contains("infra"));
@@ -112,7 +124,10 @@ mod tests {
         let prose = opt.optimize("executing scanning processing", OptimizationLevel::Full);
         assert!(!prose.contains("ing"), "suffixes must be stripped in prose");
         let code = opt.optimize("    let running = true;", OptimizationLevel::Full);
-        assert!(code.contains("running"), "code lines must not be lemmatized");
+        assert!(
+            code.contains("running"),
+            "code lines must not be lemmatized"
+        );
     }
 
     #[test]
@@ -120,11 +135,19 @@ mod tests {
         let opt = PromptOptimizer::new();
         let input = "security audit vulnerability";
         let full = opt.optimize(input, OptimizationLevel::Full);
-        assert!(!full.contains('安'), "Wenyan must not activate at Full level");
-        assert!(!full.contains('查'), "Wenyan must not activate at Full level");
+        assert!(
+            !full.contains('安'),
+            "Wenyan must not activate at Full level"
+        );
+        assert!(
+            !full.contains('查'),
+            "Wenyan must not activate at Full level"
+        );
         let ultra = opt.optimize(input, OptimizationLevel::Ultra);
-        assert!(ultra.contains('安') || ultra.contains('查') || ultra.contains('穴'),
-            "Wenyan must activate at Ultra level");
+        assert!(
+            ultra.contains('安') || ultra.contains('查') || ultra.contains('穴'),
+            "Wenyan must activate at Ultra level"
+        );
     }
 
     #[test]
@@ -132,14 +155,19 @@ mod tests {
         let opt = PromptOptimizer::new();
         let input = "audit complete, security verified; no issues!";
         let ultra = opt.optimize(input, OptimizationLevel::Ultra);
-        assert!(!ultra.contains(',') && !ultra.contains(';'),
-            "punctuation must be stripped at Ultra level");
+        assert!(
+            !ultra.contains(',') && !ultra.contains(';'),
+            "punctuation must be stripped at Ultra level"
+        );
     }
 
     #[test]
     fn test_entropy_pruner() {
         let opt = PromptOptimizer::new();
-        let r = opt.optimize("basically the system is definitely vulnerable", OptimizationLevel::Full);
+        let r = opt.optimize(
+            "basically the system is definitely vulnerable",
+            OptimizationLevel::Full,
+        );
         assert!(!r.contains("basically"));
         assert!(!r.contains("definitely"));
         assert!(r.contains("vulnerable") || r.contains("vuln"));
@@ -148,6 +176,10 @@ mod tests {
     #[test]
     fn test_pipeline_stage_count() {
         let opt = PromptOptimizer::new();
-        assert_eq!(opt.strategies.len(), 10, "pipeline must have exactly 10 stages");
+        assert_eq!(
+            opt.strategies.len(),
+            10,
+            "pipeline must have exactly 10 stages"
+        );
     }
 }

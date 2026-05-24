@@ -1,10 +1,10 @@
-use crate::models::{TargetHost, ScanMetadata, Severity};
 use crate::core::sink::DataSink;
+use crate::models::{ScanMetadata, Severity, TargetHost};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
-use tracing::{info, error, debug};
 use std::sync::Arc;
+use tracing::{debug, error, info};
 
 /// A DataSink that sends High/Critical findings to a Discord Webhook.
 pub struct DiscordSink {
@@ -34,7 +34,9 @@ impl DiscordSink {
 impl DataSink for DiscordSink {
     async fn write(&mut self, target: &TargetHost) -> Result<()> {
         // Find High or Critical findings
-        let high_findings: Vec<_> = target.findings.iter()
+        let high_findings: Vec<_> = target
+            .findings
+            .iter()
             .filter(|f| f.core.severity == Severity::High || f.core.severity == Severity::Critical)
             .collect();
 
@@ -42,15 +44,22 @@ impl DataSink for DiscordSink {
             return Ok(());
         }
 
-        debug!("📢 DiscordSink: Found {} high-severity findings for {}", high_findings.len(), target.host);
+        debug!(
+            "📢 DiscordSink: Found {} high-severity findings for {}",
+            high_findings.len(),
+            target.host
+        );
 
         for finding in high_findings {
             let color = self.get_color_for_severity(&finding.core.severity);
-            
+
             // Build the main embed
-            let scrubbed_desc = crate::core::ai::scrubber::SCRUBBER.scrub(&finding.core.description);
-            let mut description = format!("**Category:** {:?}\n**Description:** {}\n", 
-                finding.core.category, scrubbed_desc);
+            let scrubbed_desc =
+                crate::core::ai::scrubber::SCRUBBER.scrub(&finding.core.description);
+            let mut description = format!(
+                "**Category:** {:?}\n**Description:** {}\n",
+                finding.core.category, scrubbed_desc
+            );
 
             // Add AI Analysis if available
             if let Some(ai) = &finding.enrichment.ai_analysis {
@@ -93,20 +102,23 @@ impl DataSink for DiscordSink {
             });
 
             // Use proxy-aware client if needed, or simple reqwest
-            let host = url::Url::parse(&self.webhook_url)?.host_str().unwrap_or("discord.com").to_string();
+            let host = url::Url::parse(&self.webhook_url)?
+                .host_str()
+                .unwrap_or("discord.com")
+                .to_string();
             let (_, client) = self.proxy_manager.get_client_fail_closed(&host)?;
 
-            let res = client.post(&self.webhook_url)
-                .json(&payload)
-                .send()
-                .await;
+            let res = client.post(&self.webhook_url).json(&payload).send().await;
 
             match res {
                 Ok(resp) if resp.status().is_success() => {
                     info!("✅ Notification sent to Discord for {}", target.host);
                 }
                 Ok(resp) => {
-                    error!("❌ Failed to send Discord notification: HTTP {}", resp.status());
+                    error!(
+                        "❌ Failed to send Discord notification: HTTP {}",
+                        resp.status()
+                    );
                 }
                 Err(e) => {
                     error!("❌ Discord network error: {}", e);

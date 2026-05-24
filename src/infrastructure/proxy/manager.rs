@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
+use super::types::ManagedExit;
+use crate::utils::config::ProxyMode;
 use dashmap::DashMap;
 use moka::sync::Cache;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use tracing::warn;
-use crate::utils::config::ProxyMode;
-use super::types::ManagedExit;
 
 pub const MAX_LATENCY_SAMPLES: usize = 10;
 
@@ -24,7 +24,12 @@ pub struct ProxyManager {
 }
 
 impl ProxyManager {
-    pub fn new(proxies: Vec<String>, insecure: bool, proxy_mode: ProxyMode, proxy_pool_size: u32) -> Self {
+    pub fn new(
+        proxies: Vec<String>,
+        insecure: bool,
+        proxy_mode: ProxyMode,
+        proxy_pool_size: u32,
+    ) -> Self {
         let user_agents = vec![
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36".to_string(),
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36".to_string(),
@@ -62,7 +67,7 @@ impl ProxyManager {
         };
 
         if !pm.lock_proxies().is_empty() {
-             pm.start_health_checker();
+            pm.start_health_checker();
         }
 
         pm
@@ -85,7 +90,10 @@ impl ProxyManager {
     pub(crate) fn pick_user_agent(&self) -> String {
         use rand::seq::SliceRandom;
         let mut rng = rand::thread_rng();
-        self.user_agents.choose(&mut rng).cloned().unwrap_or_else(|| "Mozilla/5.0".to_string())
+        self.user_agents
+            .choose(&mut rng)
+            .cloned()
+            .unwrap_or_else(|| "Mozilla/5.0".to_string())
     }
 
     pub fn report_latency(&self, proxy: &str, duration_ms: u64) {
@@ -99,7 +107,9 @@ impl ProxyManager {
 
     pub(crate) fn get_average_latency(&self, proxy: &str) -> u64 {
         if let Some(stats) = self.latency_stats.get(proxy) {
-            if stats.is_empty() { return 1000; }
+            if stats.is_empty() {
+                return 1000;
+            }
             let sum: u64 = stats.iter().sum();
             sum / stats.len() as u64
         } else {
@@ -111,15 +121,13 @@ impl ProxyManager {
         use rand::seq::SliceRandom;
         let mut candidates: Vec<String> = {
             let proxies_lock = self.lock_proxies();
-            proxies_lock.iter()
-                .cloned()
-                .collect()
+            proxies_lock.iter().cloned().collect()
         };
 
         for entry in self.managed_exits.iter() {
             let ip = entry.key();
             let exit = entry.value();
-            
+
             let proxy_url = if let Some(local_port) = exit.local_port {
                 format!("socks5h://127.0.0.1:{}", local_port)
             } else if let (Some(u), Some(p)) = (&exit.user, &exit.pass) {
@@ -130,38 +138,39 @@ impl ProxyManager {
             candidates.push(proxy_url);
         }
 
-        if candidates.is_empty() { return None; }
+        if candidates.is_empty() {
+            return None;
+        }
 
         let mut rng = rand::thread_rng();
         if rand::Rng::gen_bool(&mut rng, 0.1) {
-             return candidates.choose(&mut rng).cloned();
+            return candidates.choose(&mut rng).cloned();
         }
 
-        candidates.into_iter()
+        candidates
+            .into_iter()
             .min_by_key(|p| self.get_average_latency(p))
     }
 
     pub fn get_best_socks_url(&self) -> Option<String> {
         use rand::seq::SliceRandom;
-        let managed: Vec<String> = self.managed_exits.iter()
-            .map(|e| e.key().clone())
-            .collect();
-            
+        let managed: Vec<String> = self.managed_exits.iter().map(|e| e.key().clone()).collect();
+
         if !managed.is_empty() {
-             let mut rng = rand::thread_rng();
-             let ip = managed.choose(&mut rng)?;
-             
-             if let Some(exit) = self.managed_exits.get(ip) {
-                 if let Some(local_port) = exit.local_port {
-                     return Some(format!("socks5h://127.0.0.1:{}", local_port));
-                 }
-                 if let (Some(u), Some(p)) = (&exit.user, &exit.pass) {
-                     return Some(format!("socks5h://{}:{}@{}:1080", u, p, ip));
-                 }
-             }
-             return Some(format!("socks5h://{}:1080", ip));
+            let mut rng = rand::thread_rng();
+            let ip = managed.choose(&mut rng)?;
+
+            if let Some(exit) = self.managed_exits.get(ip) {
+                if let Some(local_port) = exit.local_port {
+                    return Some(format!("socks5h://127.0.0.1:{}", local_port));
+                }
+                if let (Some(u), Some(p)) = (&exit.user, &exit.pass) {
+                    return Some(format!("socks5h://{}:{}@{}:1080", u, p, ip));
+                }
+            }
+            return Some(format!("socks5h://{}:1080", ip));
         }
-        
+
         let best = self.pick_best_proxy()?;
         if best.starts_with("socks") {
             Some(best)
@@ -172,17 +181,27 @@ impl ProxyManager {
 
     pub async fn wait_for_readiness(&self, timeout: std::time::Duration) -> anyhow::Result<()> {
         let start = std::time::Instant::now();
-        let check_url = std::env::var("INTERACTSH_SERVER_URL")
-            .unwrap_or_else(|_| "http://1.1.1.1".to_string());
-        
-        tracing::info!("⏳ STEALTH: Waiting for Egress Readiness Gate (Checking vs {})...", check_url);
-        
+        let check_url =
+            std::env::var("INTERACTSH_SERVER_URL").unwrap_or_else(|_| "http://1.1.1.1".to_string());
+
+        tracing::info!(
+            "⏳ STEALTH: Waiting for Egress Readiness Gate (Checking vs {})...",
+            check_url
+        );
+
         while start.elapsed() < timeout {
             if !self.is_empty() {
                 if let Some((_url, client)) = self.get_client("readiness-check.com") {
-                    match tokio::time::timeout(std::time::Duration::from_secs(5), client.head(&check_url).send()).await {
-                        Ok(Ok(resp)) if resp.status().is_success() || resp.status().is_redirection() => {
-                            tracing::info!("🛡️ STEALTH: Egress readiness verified via functional proxy. {} nodes available.", 
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        client.head(&check_url).send(),
+                    )
+                    .await
+                    {
+                        Ok(Ok(resp))
+                            if resp.status().is_success() || resp.status().is_redirection() =>
+                        {
+                            tracing::info!("🛡️ STEALTH: Egress readiness verified via functional proxy. {} nodes available.",
                                 self.lock_proxies().len() + self.managed_exits.len());
                             return Ok(());
                         }
@@ -197,7 +216,7 @@ impl ProxyManager {
             }
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         }
-        
+
         anyhow::bail!("V15.5 OPSEC Critical: Timeout exceeded waiting for functional egress. Aborting mission.")
     }
 
@@ -212,8 +231,16 @@ impl ProxyManager {
     pub fn get_adaptive_delay(&self, proxy: &str) -> std::time::Duration {
         let base_delay = self.get_human_delay();
         let multiplier = if let Some(stats) = self.latency_stats.get(proxy) {
-            let avg = if stats.is_empty() { 1000 } else { stats.iter().sum::<u64>() / stats.len() as u64 };
-            if avg > 2000 { 1.5 } else { 1.0 }
+            let avg = if stats.is_empty() {
+                1000
+            } else {
+                stats.iter().sum::<u64>() / stats.len() as u64
+            };
+            if avg > 2000 {
+                1.5
+            } else {
+                1.0
+            }
         } else {
             1.0
         };

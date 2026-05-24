@@ -1,14 +1,14 @@
+use anyhow::Result;
 use async_trait::async_trait;
-use mimikri::plugins::{ScannerPlugin, PluginMetadata, Capability};
-use mimikri::models::{TargetHost, Finding, Severity, Category};
-use mimikri::models::constants::*;
+use dashmap::DashSet;
+use mimikri::core::approval_gate::ApprovalGate;
+use mimikri::core::capability_layer::ScanLayerPolicy;
 use mimikri::core::orchestrator::swarm::inventory::{SwarmInventory, TrustLevel};
 use mimikri::core::reactive_engine;
-use mimikri::core::capability_layer::ScanLayerPolicy;
-use mimikri::core::approval_gate::ApprovalGate;
-use dashmap::DashSet;
+use mimikri::models::constants::*;
+use mimikri::models::{Category, Finding, Severity, TargetHost};
+use mimikri::plugins::{Capability, PluginMetadata, ScannerPlugin};
 use std::sync::Arc;
-use anyhow::Result;
 
 struct MockNetExec {
     last_injected_cred: Arc<tokio::sync::Mutex<Option<Finding>>>,
@@ -16,7 +16,9 @@ struct MockNetExec {
 
 #[async_trait]
 impl ScannerPlugin for MockNetExec {
-    fn name(&self) -> &'static str { PLUGIN_NETEXEC }
+    fn name(&self) -> &'static str {
+        PLUGIN_NETEXEC
+    }
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
@@ -24,8 +26,12 @@ impl ScannerPlugin for MockNetExec {
             ..Default::default()
         }
     }
-    fn capabilities(&self) -> Vec<Capability> { vec![Capability::BruteForce] }
-    async fn check_dependencies(&self) -> Result<bool> { Ok(true) }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![Capability::BruteForce]
+    }
+    async fn check_dependencies(&self) -> Result<bool> {
+        Ok(true)
+    }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         if let Some(cred_val) = target.extra_data.get("injected_credential") {
             if let Ok(finding) = serde_json::from_value::<Finding>(cred_val.clone()) {
@@ -42,13 +48,21 @@ async fn test_lateral_movement_positive() {
     let inventory = SwarmInventory::new();
     let fired_chains = DashSet::new();
     let last_cred = Arc::new(tokio::sync::Mutex::new(None));
-    let mock_nxc = Box::new(MockNetExec { last_injected_cred: last_cred.clone() }) as Box<dyn ScannerPlugin>;
+    let mock_nxc = Box::new(MockNetExec {
+        last_injected_cred: last_cred.clone(),
+    }) as Box<dyn ScannerPlugin>;
     let plugins: Vec<Box<dyn ScannerPlugin>> = vec![mock_nxc];
 
     // Finding: NTLM Hash in Scope-A
-    let mut f = Finding::new(FINDING_NTLM_HASH_CAPTURED, Category::CredentialLeak, Severity::High, "Captured Hash", serde_json::json!({"hash": "123"}));
+    let mut f = Finding::new(
+        FINDING_NTLM_HASH_CAPTURED,
+        Category::CredentialLeak,
+        Severity::High,
+        "Captured Hash",
+        serde_json::json!({"hash": "123"}),
+    );
     f.core.scope_id = "Scope-A".to_string();
-    
+
     // Manual ingestion (Simulating Orchestrator fast-path)
     inventory.ingest_finding(f.clone(), TrustLevel::Private);
 
@@ -61,7 +75,7 @@ async fn test_lateral_movement_positive() {
     };
 
     let rules = reactive_engine::get_all_rules();
-    
+
     let ctx = reactive_engine::ReactiveContext {
         findings: &[f],
         target: &target,
@@ -71,14 +85,17 @@ async fn test_lateral_movement_positive() {
         fired_chains: &fired_chains,
         inventory: Some(&inventory),
     };
-    reactive_engine::evaluate(
-        &rules,
-        ctx,
-    ).await;
+    reactive_engine::evaluate(&rules, ctx).await;
 
     let injected = last_cred.lock().await;
-    assert!(injected.is_some(), "NetExec should have been triggered with injected credential in same scope");
-    assert_eq!(injected.as_ref().unwrap().core.id, FINDING_NTLM_HASH_CAPTURED);
+    assert!(
+        injected.is_some(),
+        "NetExec should have been triggered with injected credential in same scope"
+    );
+    assert_eq!(
+        injected.as_ref().unwrap().core.id,
+        FINDING_NTLM_HASH_CAPTURED
+    );
 }
 
 #[tokio::test]
@@ -86,11 +103,19 @@ async fn test_lateral_movement_negative_scope() {
     let inventory = SwarmInventory::new();
     let fired_chains = DashSet::new();
     let last_cred = Arc::new(tokio::sync::Mutex::new(None));
-    let mock_nxc = Box::new(MockNetExec { last_injected_cred: last_cred.clone() }) as Box<dyn ScannerPlugin>;
+    let mock_nxc = Box::new(MockNetExec {
+        last_injected_cred: last_cred.clone(),
+    }) as Box<dyn ScannerPlugin>;
     let plugins: Vec<Box<dyn ScannerPlugin>> = vec![mock_nxc];
 
     // Finding in Scope-A
-    let mut f = Finding::new(FINDING_NTLM_HASH_CAPTURED, Category::CredentialLeak, Severity::High, "Captured Hash", serde_json::json!({"hash": "123"}));
+    let mut f = Finding::new(
+        FINDING_NTLM_HASH_CAPTURED,
+        Category::CredentialLeak,
+        Severity::High,
+        "Captured Hash",
+        serde_json::json!({"hash": "123"}),
+    );
     f.core.scope_id = "Scope-A".to_string();
     inventory.ingest_finding(f.clone(), TrustLevel::Private);
 
@@ -112,22 +137,24 @@ async fn test_lateral_movement_negative_scope() {
         fired_chains: &fired_chains,
         inventory: Some(&inventory),
     };
-    
-    reactive_engine::evaluate(
-        &rules,
-        ctx,
-    ).await;
+
+    reactive_engine::evaluate(&rules, ctx).await;
 
     let injected = last_cred.lock().await;
-    assert!(injected.is_none(), "NetExec should NOT have been triggered for a different scope due to ACL");
+    assert!(
+        injected.is_none(),
+        "NetExec should NOT have been triggered for a different scope due to ACL"
+    );
 }
 
 #[cfg(feature = "sovereign")]
 mod sovereign_tests {
     use super::*;
-    use mimikri::plugins::exploitation::network::responder::ResponderScanner;
     use mimikri::core::orchestrator::c2::sliver_feedback::{C2Client, SliverFeedbackLoop};
-    use mimikri::core::orchestrator::c2::sliver_proto::sliver::sliverpb::{CallExtensionReq, CallExtension};
+    use mimikri::core::orchestrator::c2::sliver_proto::sliver::sliverpb::{
+        CallExtension, CallExtensionReq,
+    };
+    use mimikri::plugins::exploitation::network::responder::ResponderScanner;
     use std::sync::Mutex;
 
     // ============================================================
@@ -175,7 +202,10 @@ mod sovereign_tests {
     fn test_responder_parser_empty_and_malformed() {
         assert_eq!(ResponderScanner::parse_responder_log("").len(), 0);
         assert_eq!(
-            ResponderScanner::parse_responder_log("[*] Some other Responder log line\n[HTTP] GET ...").len(),
+            ResponderScanner::parse_responder_log(
+                "[*] Some other Responder log line\n[HTTP] GET ..."
+            )
+            .len(),
             0,
             "Non-SMB-NTLMv2 lines should produce no captures"
         );
@@ -198,7 +228,7 @@ mod sovereign_tests {
     fn test_mimikatz_parser_standard() {
         let output = "User : Administrator\n\
                       Hash NTLM: 2b576acbe6bcfda72f2b576acbe6bcfd\n";
-        
+
         let results = SliverFeedbackLoop::parse_mimikatz_output(output);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "Administrator");
@@ -216,7 +246,7 @@ mod sovereign_tests {
                       * Hash NTLM: 11111111111111111111111111111111\n\
                       * User : guest\n\
                       * Hash NTLM: 00000000000000000000000000000000\n";
-        
+
         let results = SliverFeedbackLoop::parse_mimikatz_output(output);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].0, "jdoe");
@@ -316,7 +346,10 @@ mod sovereign_tests {
         );
         let first = &creds[0];
         // Finding title matches the NTLM_HASH_CAPTURED constant (verified via Deref to CoreFinding)
-        assert_eq!(first.core.id, mimikri::models::constants::FINDING_NTLM_HASH_CAPTURED);
+        assert_eq!(
+            first.core.id,
+            mimikri::models::constants::FINDING_NTLM_HASH_CAPTURED
+        );
         // JSON evidence is stored in finding.evidence.evidence.data
         let data = &first.evidence.primary.as_ref().unwrap().data;
         assert_eq!(data["ntlm"], "aabbccddeeff00112233445566778899");
@@ -333,15 +366,19 @@ mod sovereign_tests {
         };
         let inventory = Arc::new(SwarmInventory::new());
 
-        let result = SliverFeedbackLoop::handle_new_session(
-            client,
-            "sess-err-test".to_string(),
-            inventory,
-        )
-        .await;
+        let result =
+            SliverFeedbackLoop::handle_new_session(client, "sess-err-test".to_string(), inventory)
+                .await;
 
-        assert!(result.is_err(), "gRPC failure must propagate as Err, not be swallowed");
+        assert!(
+            result.is_err(),
+            "gRPC failure must propagate as Err, not be swallowed"
+        );
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("simulated gRPC error"), "Error message must be preserved: {}", msg);
+        assert!(
+            msg.contains("simulated gRPC error"),
+            "Error message must be preserved: {}",
+            msg
+        );
     }
 }

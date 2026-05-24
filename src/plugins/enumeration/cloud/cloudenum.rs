@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::info;
 pub struct CloudEnumScanner {
     binary_path: String,
 }
@@ -18,9 +18,7 @@ impl Default for CloudEnumScanner {
 impl CloudEnumScanner {
     pub fn new() -> Self {
         let path = detect_tool("cloud_enum");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 #[async_trait]
@@ -28,7 +26,7 @@ impl ScannerPlugin for CloudEnumScanner {
     fn name(&self) -> &'static str {
         crate::models::PLUGIN_CLOUD_ENUM
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -43,7 +41,9 @@ impl ScannerPlugin for CloudEnumScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::CloudAudit]
@@ -52,7 +52,10 @@ impl ScannerPlugin for CloudEnumScanner {
         Ok(crate::utils::check_tool_availability("cloudenum").await)
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("CloudEnumScanner: enumerating cloud assets for {}", target.host);
+        info!(
+            "CloudEnumScanner: enumerating cloud assets for {}",
+            target.host
+        );
         // CloudEnum execution
         let child = Command::new(&self.binary_path)
             .arg("-k")
@@ -62,7 +65,10 @@ impl ScannerPlugin for CloudEnumScanner {
             .stderr(Stdio::null())
             .spawn()
             .context("Failed to spawn cloud_enum")?;
-        let output = child.wait_with_output().await.context("Failed to wait for CloudEnum")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed to wait for CloudEnum")?;
         let mut findings = Vec::new();
         let content = String::from_utf8_lossy(&output.stdout);
         if content.contains("Found") || content.contains("http") {
@@ -70,8 +76,11 @@ impl ScannerPlugin for CloudEnumScanner {
                 "CLOUD-ASSET-DISCOVERED",
                 Category::ExposedAsset,
                 Severity::Info,
-                &format!("Public cloud assets discovered for {} via CloudEnum.", target.host),
-                serde_json::json!({ "output": content.trim() })
+                &format!(
+                    "Public cloud assets discovered for {} via CloudEnum.",
+                    target.host
+                ),
+                serde_json::json!({ "output": content.trim() }),
             ));
         }
         Ok(findings)

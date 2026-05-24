@@ -1,32 +1,36 @@
 use anyhow::{Context, Result};
-use std::path::PathBuf;
-use std::process::Command;
+use std::borrow::Cow;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use tracing::{info, warn, debug};
-use std::borrow::Cow;
+use std::path::PathBuf;
+use std::process::Command;
+use tracing::{debug, info, warn};
 
 /// Detects if a tool is available in the system PATH using the `which` command.
-/// 
+///
 /// This function first attempts to use the system `which` command for maximum
 /// compatibility with BlackArch and other specialized distributions. Falls back
 /// to Rust's `which` crate if system command fails.
-/// 
+///
 /// # Arguments
 /// * `tool_name` - Name of the tool to detect (e.g., "ffuf", "nuclei", "sqlmap")
-/// 
+///
 /// # Returns
 /// * `Ok(Some(PathBuf))` - Tool found at the given path
 /// * `Ok(None)` - Tool not found in PATH
 /// * `Err` - Error during detection
 pub fn detect_tool_system(tool_name: &str) -> Result<Option<PathBuf>> {
     debug!("Attempting to detect tool: {}", tool_name);
-    
+
     // First try: local ./bin directory (useful for portable/temp tool installs)
     let local_bin = PathBuf::from("./bin").join(tool_name);
     if local_bin.exists() {
         if let Ok(abs_path) = std::fs::canonicalize(&local_bin) {
-            info!("Tool '{}' detected in local ./bin: {}", tool_name, abs_path.display());
+            info!(
+                "Tool '{}' detected in local ./bin: {}",
+                tool_name,
+                abs_path.display()
+            );
             return Ok(Some(abs_path));
         }
     }
@@ -35,7 +39,7 @@ pub fn detect_tool_system(tool_name: &str) -> Result<Option<PathBuf>> {
     match Command::new("which")
         .arg(tool_name)
         .output()
-        .context(format!("Failed to execute 'which' for {}", tool_name))? 
+        .context(format!("Failed to execute 'which' for {}", tool_name))?
     {
         output if output.status.success() => {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -47,11 +51,15 @@ pub fn detect_tool_system(tool_name: &str) -> Result<Option<PathBuf>> {
         }
         _ => debug!("System 'which' command did not find '{}'", tool_name),
     }
-    
+
     // Fallback: Rust's `which` crate (reliable but may miss BlackArch aliases)
     match which::which(tool_name) {
         Ok(path) => {
-            info!("Tool '{}' detected via fallback at: {}", tool_name, path.display());
+            info!(
+                "Tool '{}' detected via fallback at: {}",
+                tool_name,
+                path.display()
+            );
             Ok(Some(path))
         }
         Err(_) => {
@@ -71,7 +79,10 @@ pub fn detect_tool(tool_name: &str) -> String {
             tool_name.to_string()
         }
         Err(e) => {
-            warn!("Error detecting tool '{}': {}; using tool name as fallback", tool_name, e);
+            warn!(
+                "Error detecting tool '{}': {}; using tool name as fallback",
+                tool_name, e
+            );
             tool_name.to_string()
         }
     }
@@ -94,10 +105,9 @@ pub async fn check_tool_availability(tool_name: &str) -> bool {
             // Verify it's executable
             match tokio::fs::metadata(&path).await {
                 Ok(metadata) => {
-                    let is_executable = cfg!(unix) && 
-                        (metadata.permissions().mode() & 0o111 != 0) ||
-                        cfg!(windows);
-                    
+                    let is_executable =
+                        cfg!(unix) && (metadata.permissions().mode() & 0o111 != 0) || cfg!(windows);
+
                     if is_executable {
                         info!("Tool '{}' verified as executable", tool_name);
                         true
@@ -125,27 +135,31 @@ pub async fn check_tool_availability(tool_name: &str) -> bool {
 
 /// Verifies tool version compatibility with a minimum required version.
 /// Executes `<tool_name> --version` and parses the output.
-pub async fn verify_tool_version(
-    tool_name: &str,
-    min_version: Option<&str>,
-) -> Result<bool> {
+pub async fn verify_tool_version(tool_name: &str, min_version: Option<&str>) -> Result<bool> {
     if let Ok(Some(path)) = detect_tool_system(tool_name) {
         let output = tokio::process::Command::new(&path)
             .arg("--version")
             .output()
             .await
             .context(format!("Failed to get version for {}", tool_name))?;
-        
+
         if output.status.success() {
             let version_str = String::from_utf8_lossy(&output.stdout);
-            info!("Tool '{}' version output: {}", tool_name, version_str.trim());
-            
+            info!(
+                "Tool '{}' version output: {}",
+                tool_name,
+                version_str.trim()
+            );
+
             if let Some(min_v) = min_version {
                 // Simple lexicographic comparison (improve as needed)
                 if version_str.contains(min_v) || version_str.as_ref() >= min_v {
                     return Ok(true);
                 }
-                warn!("Tool '{}' version may not meet minimum requirement: {}", tool_name, min_v);
+                warn!(
+                    "Tool '{}' version may not meet minimum requirement: {}",
+                    tool_name, min_v
+                );
             }
             return Ok(true);
         }
@@ -157,7 +171,7 @@ pub async fn verify_tool_version(
 /// Checks common BlackArch paths and environment variables
 pub fn detect_blackarch_tool(tool_name: &str) -> Option<PathBuf> {
     debug!("Checking BlackArch-specific paths for: {}", tool_name);
-    
+
     // Common BlackArch installation paths
     let blackarch_paths = vec![
         "/usr/bin",
@@ -165,26 +179,34 @@ pub fn detect_blackarch_tool(tool_name: &str) -> Option<PathBuf> {
         "/opt/blackarch/bin",
         "/home/user/.local/bin",
     ];
-    
+
     for base_path in blackarch_paths {
         let full_path = PathBuf::from(base_path).join(tool_name);
         if full_path.exists() {
-            info!("BlackArch tool '{}' found at: {}", tool_name, full_path.display());
+            info!(
+                "BlackArch tool '{}' found at: {}",
+                tool_name,
+                full_path.display()
+            );
             return Some(full_path);
         }
     }
-    
+
     // Check $PATH environment variable
     if let Ok(path_env) = std::env::var("PATH") {
         for path_str in path_env.split(':') {
             let full_path = PathBuf::from(path_str).join(tool_name);
             if full_path.exists() {
-                info!("Tool '{}' found in PATH at: {}", tool_name, full_path.display());
+                info!(
+                    "Tool '{}' found in PATH at: {}",
+                    tool_name,
+                    full_path.display()
+                );
                 return Some(full_path);
             }
         }
     }
-    
+
     None
 }
 
@@ -196,13 +218,19 @@ mod tests {
     fn test_detect_tool_ls() {
         let result = detect_tool_system("ls");
         assert!(result.is_ok());
-        assert!(result.unwrap().is_some(), "ls should be available on any Unix system");
+        assert!(
+            result.unwrap().is_some(),
+            "ls should be available on any Unix system"
+        );
     }
 
     #[test]
     fn test_detect_nonexistent_tool() {
         let result = detect_tool_system("nonexistent_tool_xyz_12345");
         assert!(result.is_ok());
-        assert!(result.unwrap().is_none(), "nonexistent tool should return None");
+        assert!(
+            result.unwrap().is_none(),
+            "nonexistent tool should return None"
+        );
     }
 }

@@ -1,8 +1,8 @@
+use moka::sync::Cache;
+use once_cell::sync::Lazy;
+use regex::Regex;
 /// token_optimizer/ranker.rs — ContextRanker implementation.
 use std::collections::HashSet;
-use regex::Regex;
-use once_cell::sync::Lazy;
-use moka::sync::Cache;
 
 pub struct ContextRanker {
     cache: Cache<String, Vec<(String, f64)>>,
@@ -16,31 +16,44 @@ impl Default for ContextRanker {
 
 impl ContextRanker {
     pub fn new() -> Self {
-        Self { 
+        Self {
             cache: Cache::builder()
                 .max_capacity(50)
                 .time_to_idle(std::time::Duration::from_secs(3600))
-                .build() 
+                .build(),
         }
     }
 
-    fn score_files(&self, query_terms: &[String], files: &[(String, String)]) -> Vec<(String, String, f64)> {
-        let mut initial_scores: Vec<(String, String, f64)> = files.iter()
+    fn score_files(
+        &self,
+        query_terms: &[String],
+        files: &[(String, String)],
+    ) -> Vec<(String, String, f64)> {
+        let mut initial_scores: Vec<(String, String, f64)> = files
+            .iter()
             .map(|(path, content)| {
                 let mut score = 0.0;
                 let pl = path.to_lowercase();
                 let cl = content.to_lowercase();
                 for term in query_terms {
-                    if pl.contains(term.as_str()) { score += 10.0; }
+                    if pl.contains(term.as_str()) {
+                        score += 10.0;
+                    }
                     score += cl.matches(term.as_str()).count() as f64 * 0.5;
                 }
-                if path.ends_with(".rs") { score += 2.0; }
-                if path.ends_with(".md") { score += 1.0; }
+                if path.ends_with(".rs") {
+                    score += 2.0;
+                }
+                if path.ends_with(".md") {
+                    score += 1.0;
+                }
                 if let Ok(meta) = std::fs::metadata(path) {
                     if let Ok(modified) = meta.modified() {
                         if let Ok(elapsed) = modified.elapsed() {
                             let days = elapsed.as_secs() / 86400;
-                            if days < 7 { score += 5.0 - (days as f64 * 0.5); }
+                            if days < 7 {
+                                score += 5.0 - (days as f64 * 0.5);
+                            }
                         }
                     }
                 }
@@ -62,10 +75,15 @@ impl ContextRanker {
         let mut current_tokens = 0u64;
 
         while !initial_scores.is_empty() && selected.len() < 30 {
-            let best_idx = initial_scores.iter().enumerate()
+            let best_idx = initial_scores
+                .iter()
+                .enumerate()
                 .map(|(i, (_, content, score))| {
-                    let redundancy = if selected.is_empty() { 0.0 } else {
-                        selected.iter()
+                    let redundancy = if selected.is_empty() {
+                        0.0
+                    } else {
+                        selected
+                            .iter()
                             .map(|(_, sc, _)| Self::jaccard(content, sc))
                             .fold(0.0f64, f64::max)
                     };
@@ -77,7 +95,9 @@ impl ContextRanker {
 
             let (p, c, s) = initial_scores.remove(best_idx);
             let file_tokens = (c.len() / 4) as u64;
-            if current_tokens + file_tokens > max_tokens && !selected.is_empty() { break; }
+            if current_tokens + file_tokens > max_tokens && !selected.is_empty() {
+                break;
+            }
 
             let deps = Self::extract_deps(&c);
             for (rp, _rc, rs) in initial_scores.iter_mut() {
@@ -110,8 +130,11 @@ impl ContextRanker {
             return hits.clone();
         }
 
-        let query_terms: Vec<String> = query.to_lowercase()
-            .split_whitespace().map(|s| s.to_string()).collect();
+        let query_terms: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
 
         let initial_scores = self.score_files(&query_terms, files);
         let max_tokens = token_budget.unwrap_or(32_000);
@@ -124,12 +147,20 @@ impl ContextRanker {
 
     fn jaccard(a: &str, b: &str) -> f64 {
         static STOP: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-            ["the","a","an","and","or","to","for","with","in","on","is","are","was","were","it","this","that"]
-                .iter().cloned().collect()
+            [
+                "the", "a", "an", "and", "or", "to", "for", "with", "in", "on", "is", "are", "was",
+                "were", "it", "this", "that",
+            ]
+            .iter()
+            .cloned()
+            .collect()
         });
         let tokens = |s: &str| -> HashSet<String> {
             s.split_whitespace()
-                .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+                .map(|w| {
+                    w.trim_matches(|c: char| !c.is_alphanumeric())
+                        .to_lowercase()
+                })
                 .filter(|w| !w.is_empty() && !STOP.contains(w.as_str()))
                 .take(200)
                 .collect()
@@ -138,7 +169,11 @@ impl ContextRanker {
         let sb = tokens(b);
         let inter = sa.intersection(&sb).count() as f64;
         let union = sa.union(&sb).count() as f64;
-        if union == 0.0 { 0.0 } else { inter / union }
+        if union == 0.0 {
+            0.0
+        } else {
+            inter / union
+        }
     }
 
     fn extract_deps(content: &str) -> Vec<String> {
@@ -176,8 +211,14 @@ mod tests {
     #[test]
     fn test_ranker_returns_relevant_first() {
         let files = vec![
-            ("src/proxy.rs".to_string(), "pub struct ProxyManager;".to_string()),
-            ("docs/audit.md".to_string(), "Security audit proxy module.".to_string()),
+            (
+                "src/proxy.rs".to_string(),
+                "pub struct ProxyManager;".to_string(),
+            ),
+            (
+                "docs/audit.md".to_string(),
+                "Security audit proxy module.".to_string(),
+            ),
             ("src/main.rs".to_string(), "fn main() {}".to_string()),
         ];
         let ranker = ContextRanker::new();

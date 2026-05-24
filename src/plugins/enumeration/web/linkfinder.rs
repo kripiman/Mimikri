@@ -2,14 +2,14 @@
 // 🔍 LinkFinder: Endpoints discovery in JS files
 // ⚡ Offensive reconnaissance for front-end analysis
 
-use async_trait::async_trait;
-use crate::models::{TargetHost, Finding, Category, Severity};
-use crate::plugins::{ScannerPlugin, PluginMetadata, Capability, RiskLevel};
 use crate::core::capability_layer::ScanLayer;
-use crate::models::constants::{PLUGIN_LINKFINDER, FINDING_JS_ENDPOINT};
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
+use crate::models::constants::{FINDING_JS_ENDPOINT, PLUGIN_LINKFINDER};
+use crate::models::{Category, Finding, Severity, TargetHost};
 use crate::plugins::GlobalConfig;
-use anyhow::{Result, Context};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
+use anyhow::{Context, Result};
+use async_trait::async_trait;
 use std::sync::Arc;
 
 pub struct LinkFinderScanner<M: ExecutorMode> {
@@ -33,7 +33,9 @@ impl<M: ExecutorMode> ScannerPlugin for LinkFinderScanner<M> {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "Extracts endpoints and parameters from Javascript files using regex analysis.".to_string(),
+            description:
+                "Extracts endpoints and parameters from Javascript files using regex analysis."
+                    .to_string(),
             target_type: crate::models::TargetType::Web,
             risk_level: RiskLevel::Low,
             layer: ScanLayer::Scanning,
@@ -45,7 +47,9 @@ impl<M: ExecutorMode> ScannerPlugin for LinkFinderScanner<M> {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("recon".to_string()),
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -62,7 +66,7 @@ impl<M: ExecutorMode> ScannerPlugin for LinkFinderScanner<M> {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
+
         let js_files = if target.host.ends_with(".js") {
             vec![target.host.clone()]
         } else if let Some(discovered) = target.extra_data.get("discovered_urls") {
@@ -76,10 +80,19 @@ impl<M: ExecutorMode> ScannerPlugin for LinkFinderScanner<M> {
         };
 
         for js_url in js_files {
-            let output = self.executor.execute_and_wait(
-                "linkfinder",
-                vec!["-i".to_string(), js_url.clone(), "-o".to_string(), "cli".to_string()],
-            ).await.context("Failed to execute linkfinder")?;
+            let output = self
+                .executor
+                .execute_and_wait(
+                    "linkfinder",
+                    vec![
+                        "-i".to_string(),
+                        js_url.clone(),
+                        "-o".to_string(),
+                        "cli".to_string(),
+                    ],
+                )
+                .await
+                .context("Failed to execute linkfinder")?;
 
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -88,18 +101,21 @@ impl<M: ExecutorMode> ScannerPlugin for LinkFinderScanner<M> {
                     if line.is_empty() || line.starts_with("LinkFinder") || line.contains("---") {
                         continue;
                     }
-                    
-                    findings.push(Finding::new(
-                        FINDING_JS_ENDPOINT,
-                        Category::Recon,
-                        Severity::Info,
-                        &format!("Discovered endpoint in {}: {}", js_url, line),
-                        serde_json::json!({
-                            "source": js_url,
-                            "endpoint": line,
-                            "tool": "linkfinder"
-                        })
-                    ).with_blackarch_category("recon"));
+
+                    findings.push(
+                        Finding::new(
+                            FINDING_JS_ENDPOINT,
+                            Category::Recon,
+                            Severity::Info,
+                            &format!("Discovered endpoint in {}: {}", js_url, line),
+                            serde_json::json!({
+                                "source": js_url,
+                                "endpoint": line,
+                                "tool": "linkfinder"
+                            }),
+                        )
+                        .with_blackarch_category("recon"),
+                    );
                 }
             }
         }

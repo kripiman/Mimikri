@@ -23,10 +23,10 @@ pub struct ValidationMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvidenceFile {
-    pub evidence_type: String,  // screenshot, http-request, terminal-log, scan-output
-    pub path: String,           // path relativo al workspace
+    pub evidence_type: String, // screenshot, http-request, terminal-log, scan-output
+    pub path: String,          // path relativo al workspace
     pub description: String,
-    pub sha256: String,         // chain-of-custody
+    pub sha256: String, // chain-of-custody
     pub collected_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -40,7 +40,9 @@ pub struct Evidence {
     pub verified: bool,
 }
 
-fn default_confidence() -> f32 { 0.5 }
+fn default_confidence() -> f32 {
+    0.5
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FindingEvidence {
