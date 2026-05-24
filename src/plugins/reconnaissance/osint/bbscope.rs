@@ -1,11 +1,11 @@
-use crate::plugins::{DiscoveryPlugin, Capability, GlobalConfig, DiscoveryResult};
 use crate::models::TargetHost;
-use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
-use anyhow::Result;
-use tracing::{info, warn};
-use std::process::Stdio;
+use crate::plugins::{Capability, DiscoveryPlugin, DiscoveryResult, GlobalConfig};
 use crate::utils::executor::ExecutorMode;
+use crate::utils::tool_detection::detect_tool;
+use anyhow::Result;
+use async_trait::async_trait;
+use std::process::Stdio;
+use tracing::{info, warn};
 
 pub struct BBScopeScanner {
     binary_path: String,
@@ -37,7 +37,9 @@ impl DiscoveryPlugin for BBScopeScanner {
     fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
-            description: "bbscope: Extract scope from Bug Bounty platforms (H1, Bugcrowd, Intigriti).".to_string(),
+            description:
+                "bbscope: Extract scope from Bug Bounty platforms (H1, Bugcrowd, Intigriti)."
+                    .to_string(),
             target_type: crate::plugins::TargetType::Osint,
             risk_level: crate::plugins::RiskLevel::Safe,
             layer: crate::core::capability_layer::ScanLayer::Passive,
@@ -49,7 +51,9 @@ impl DiscoveryPlugin for BBScopeScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Safe,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -91,11 +95,15 @@ impl DiscoveryPlugin for BBScopeScanner {
 }
 
 impl BBScopeScanner {
-    async fn run_bbscope(&self, platform: &str, user: Option<&str>, token: &str) -> Result<Vec<DiscoveryResult>> {
+    async fn run_bbscope(
+        &self,
+        platform: &str,
+        user: Option<&str>,
+        token: &str,
+    ) -> Result<Vec<DiscoveryResult>> {
         let mut cmd = tokio::process::Command::new(&self.binary_path);
-        cmd.arg(platform)
-           .arg("-t").arg(token);
-        
+        cmd.arg(platform).arg("-t").arg(token);
+
         if let Some(u) = user {
             cmd.arg("-u").arg(u);
         }
@@ -103,11 +111,12 @@ impl BBScopeScanner {
         // We want only in-scope items and typically we want hostnames/wildcards
         cmd.arg("-o").arg("t"); // Output type: targets
 
-        let output = cmd.stdout(Stdio::piped())
-                        .stderr(Stdio::null())
-                        .spawn()?
-                        .wait_with_output()
-                        .await?;
+        let output = cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?
+            .wait_with_output()
+            .await?;
 
         if !output.status.success() {
             warn!("bbscope {} failed", platform);
@@ -118,16 +127,17 @@ impl BBScopeScanner {
         let mut results = Vec::new();
         for line in stdout.lines() {
             let target = line.trim().to_string();
-            if !target.is_empty() && !target.contains('*') { // Simplistic wildcard handling
-                 results.push(DiscoveryResult {
-                     host: target,
-                     metadata: serde_json::json!({ "platform": platform }),
-                 });
+            if !target.is_empty() && !target.contains('*') {
+                // Simplistic wildcard handling
+                results.push(DiscoveryResult {
+                    host: target,
+                    metadata: serde_json::json!({ "platform": platform }),
+                });
             } else if target.contains("*.") {
-                 results.push(DiscoveryResult {
-                     host: target.replace("*.", ""),
-                     metadata: serde_json::json!({ "platform": platform }),
-                 });
+                results.push(DiscoveryResult {
+                    host: target.replace("*.", ""),
+                    metadata: serde_json::json!({ "platform": platform }),
+                });
             }
         }
 

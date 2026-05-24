@@ -1,8 +1,8 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Category, Severity};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
 use std::process::Stdio;
 
 pub struct CdnCheckScanner {
@@ -18,14 +18,13 @@ impl Default for CdnCheckScanner {
 impl CdnCheckScanner {
     pub fn new() -> Self {
         let path = detect_tool("cdncheck");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 
     pub async fn is_cdn(&self, target: &str) -> Result<bool> {
         let child = tokio::process::Command::new(&self.binary_path)
-            .arg("-i").arg(target)
+            .arg("-i")
+            .arg(target)
             .arg("-silent")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -52,7 +51,9 @@ impl ScannerPlugin for CdnCheckScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "cdncheck: Detects if a target IP belongs to a CDN, Cloud or WAF provider.".to_string(),
+            description:
+                "cdncheck: Detects if a target IP belongs to a CDN, Cloud or WAF provider."
+                    .to_string(),
             target_type: TargetType::Host,
             risk_level: RiskLevel::Safe,
             layer: crate::core::capability_layer::ScanLayer::Scanning,
@@ -75,14 +76,13 @@ impl ScannerPlugin for CdnCheckScanner {
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         let addr = target.ip.as_deref().unwrap_or(&target.host);
         if self.is_cdn(addr).await? {
-            return Ok(vec![
-                Finding::builder(
-                    "CDN-DETECTED",
-                    Category::Recon,
-                    Severity::Info,
-                    &format!("Target {} is behind a CDN/Cloud provider", addr)
-                ).build()
-            ]);
+            return Ok(vec![Finding::builder(
+                "CDN-DETECTED",
+                Category::Recon,
+                Severity::Info,
+                &format!("Target {} is behind a CDN/Cloud provider", addr),
+            )
+            .build()]);
         }
         Ok(Vec::new())
     }

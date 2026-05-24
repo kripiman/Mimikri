@@ -1,25 +1,25 @@
+use crate::core::mcp::sanitizer::DataSanitizer;
+use crate::core::sink::PostgresSink;
+use crate::plugins::GlobalConfig;
+use axum::async_trait;
 use axum::{
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
     routing::{get, post},
     Router,
 };
-use axum::async_trait;
-use tower_http::cors::{AllowOrigin, CorsLayer};
-use std::{sync::Arc, time::Duration};
-use std::sync::atomic::{AtomicU32, AtomicU64};
-use tokio::sync::mpsc;
-use tracing::info;
-use crate::plugins::GlobalConfig;
-use crate::core::mcp::sanitizer::DataSanitizer;
-use crate::core::sink::PostgresSink;
-use std::path::PathBuf;
-use moka::future::Cache;
 use dashmap::DashMap;
+use moka::future::Cache;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, AtomicU64};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::mpsc;
+use tower_http::cors::{AllowOrigin, CorsLayer};
+use tracing::info;
 
+pub mod execute;
 pub mod handlers;
 pub mod tools;
-pub mod execute;
 
 /// The modularized MCP (Model Context Protocol) Server for Mimikri RedTeam Core.
 pub struct McpServer {
@@ -67,17 +67,28 @@ impl McpServer {
             let stats_res = db.get_mcp_stats().await;
             if let Ok(stats) = stats_res {
                 use std::sync::atomic::Ordering;
-                if let Some(v) = stats.get("total_calls") { self.total_calls.store(*v as u32, Ordering::SeqCst); }
-                if let Some(v) = stats.get("cache_hits") { self.cache_hits.store(*v as u32, Ordering::SeqCst); }
-                if let Some(v) = stats.get("tokens_saved") { self.tokens_saved.store(*v as u64, Ordering::SeqCst); }
-                if let Some(v) = stats.get("bytes_processed") { self.bytes_processed.store(*v as u64, Ordering::SeqCst); }
+                if let Some(v) = stats.get("total_calls") {
+                    self.total_calls.store(*v as u32, Ordering::SeqCst);
+                }
+                if let Some(v) = stats.get("cache_hits") {
+                    self.cache_hits.store(*v as u32, Ordering::SeqCst);
+                }
+                if let Some(v) = stats.get("tokens_saved") {
+                    self.tokens_saved.store(*v as u64, Ordering::SeqCst);
+                }
+                if let Some(v) = stats.get("bytes_processed") {
+                    self.bytes_processed.store(*v as u64, Ordering::SeqCst);
+                }
             }
             self.db = Some(Arc::new(db));
         }
         self
     }
 
-    pub fn with_off_path_engine(mut self, engine: Arc<crate::core::ai::off_path::OffPathAiEngine>) -> Self {
+    pub fn with_off_path_engine(
+        mut self,
+        engine: Arc<crate::core::ai::off_path::OffPathAiEngine>,
+    ) -> Self {
         self.off_path_engine = Some(engine);
         self
     }
@@ -88,14 +99,18 @@ impl McpServer {
         }
 
         let state = Arc::new(self);
-        
+
         let cors = CorsLayer::new()
             .allow_origin(AllowOrigin::predicate(move |origin, _| {
                 let origin_str = origin.to_str().unwrap_or("");
-                origin_str == format!("http://127.0.0.1:{}", port) || origin_str == format!("http://localhost:{}", port)
+                origin_str == format!("http://127.0.0.1:{}", port)
+                    || origin_str == format!("http://localhost:{}", port)
             }))
             .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
-            .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE]);
+            .allow_headers([
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::CONTENT_TYPE,
+            ]);
 
         let app = Router::new()
             .route("/sse", get(handlers::sse_handler))
@@ -104,11 +119,14 @@ impl McpServer {
             .with_state(state);
 
         let addr = format!("127.0.0.1:{}", port);
-        info!("🛡️ [MCP-Server] Escuchando en http://{} (SSE Enabled + AUTH + CORS Hardened)", addr);
-        
+        info!(
+            "🛡️ [MCP-Server] Escuchando en http://{} (SSE Enabled + AUTH + CORS Hardened)",
+            addr
+        );
+
         let listener = tokio::net::TcpListener::bind(&addr).await?;
         axum::serve(listener, app).await?;
-        
+
         Ok(())
     }
 }
@@ -123,16 +141,24 @@ impl FromRequestParts<Arc<McpServer>> for ValidatedOperator {
         parts: &mut Parts,
         state: &Arc<McpServer>,
     ) -> Result<Self, Self::Rejection> {
-        let auth_header = parts.headers.get("Authorization")
+        let auth_header = parts
+            .headers
+            .get("Authorization")
             .and_then(|h| h.to_str().ok())
-            .ok_or((StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()))?;
+            .ok_or((
+                StatusCode::UNAUTHORIZED,
+                "Missing Authorization header".to_string(),
+            ))?;
 
         if !auth_header.starts_with("Bearer ") {
-            return Err((StatusCode::UNAUTHORIZED, "Invalid Authorization header format".to_string()));
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Invalid Authorization header format".to_string(),
+            ));
         }
 
         let token = &auth_header[7..];
-        
+
         if let Some(valid_token) = &state.config.mcp_token {
             if token == valid_token {
                 return Ok(ValidatedOperator);

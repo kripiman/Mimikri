@@ -1,8 +1,8 @@
-use crate::plugins::{ScannerPlugin, PluginMetadata, Capability, RiskLevel, GlobalConfig};
-use crate::models::{TargetHost, Finding, Category, Severity};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, GlobalConfig, PluginMetadata, RiskLevel, ScannerPlugin};
 use crate::utils::executor::ExecutorMode;
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use tracing::info;
 
 pub struct GitHubDorksScanner<M: ExecutorMode> {
@@ -17,7 +17,9 @@ impl<M: ExecutorMode> GitHubDorksScanner<M> {
 
 #[async_trait]
 impl<M: ExecutorMode> ScannerPlugin for GitHubDorksScanner<M> {
-    fn name(&self) -> &'static str { "github-dorks" }
+    fn name(&self) -> &'static str {
+        "github-dorks"
+    }
 
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
@@ -44,15 +46,23 @@ impl<M: ExecutorMode> ScannerPlugin for GitHubDorksScanner<M> {
         info!("🔍 Starting GitHub Dorking for {}", domain);
 
         let mut findings = Vec::new();
-        
+
         // Command construction for gitdorks_go
         let args = vec![
-            "-target".to_string(), domain.clone(),
-            "-tf".to_string(), "dorks.txt".to_string(), // This assumes a dorks file exists
-            "-output".to_string(), "json".to_string(),
+            "-target".to_string(),
+            domain.clone(),
+            "-tf".to_string(),
+            "dorks.txt".to_string(), // This assumes a dorks file exists
+            "-output".to_string(),
+            "json".to_string(),
         ];
 
-        match self.config.executor.execute_and_wait("gitdorks_go", args).await {
+        match self
+            .config
+            .executor
+            .execute_and_wait("gitdorks_go", args)
+            .await
+        {
             Ok(output) if output.status.success() => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 // Parsing logic would go here
@@ -63,10 +73,10 @@ impl<M: ExecutorMode> ScannerPlugin for GitHubDorksScanner<M> {
                         Category::CredentialLeak,
                         Severity::High,
                         &format!("GitHub dorks matched for {}", domain),
-                        serde_json::json!({ "output": stdout })
+                        serde_json::json!({ "output": stdout }),
                     ));
                 }
-            },
+            }
             _ => {
                 // Tool likely not installed or failed
             }

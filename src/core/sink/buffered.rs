@@ -1,6 +1,6 @@
-use crate::models::{TargetHost, ScanMetadata, Finding};
 use super::DataSink;
 use crate::models::spill::NdjsonSpillWriter;
+use crate::models::{Finding, ScanMetadata, TargetHost};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -33,12 +33,16 @@ impl BufferedSink {
 #[async_trait]
 impl DataSink for BufferedSink {
     async fn write(&mut self, target: &TargetHost) -> Result<()> {
-        println!("📥 BufferedSink: Received {} findings from {}", target.findings.len(), target.host);
-        
+        println!(
+            "📥 BufferedSink: Received {} findings from {}",
+            target.findings.len(),
+            target.host
+        );
+
         let mut processed_findings = Vec::new();
         for mut finding in target.findings.iter().cloned() {
             finding.core.target = Some(target.host.clone());
-            
+
             // ARCH-11: Spill to NDJSON if writer is configured
             if let Some(ref writer) = self.spill_writer {
                 // We await here, but we DON'T hold the MutexGuard yet.
@@ -52,7 +56,7 @@ impl DataSink for BufferedSink {
             let mut lock = self.findings.lock().unwrap();
             lock.extend(processed_findings);
         }
-        
+
         Ok(())
     }
 

@@ -1,8 +1,8 @@
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use crate::models::TargetHost;
-use anyhow::{Result, Context};
-use std::time::Duration;
 use crate::utils::proxy::ProxyManager;
+use anyhow::{Context, Result};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use std::time::Duration;
 
 #[cfg(feature = "tls-impersonation")]
 use wreq_util::Emulation;
@@ -11,21 +11,46 @@ pub struct StealthClientBuilder;
 
 impl StealthClientBuilder {
     pub fn build(target: &TargetHost, pm: &ProxyManager) -> Result<reqwest::Client> {
-        Self::create_builder(target, pm, &crate::plugins::detection_evasion::stealth_policy::StealthPolicy::default())?.build().context("Failed to build Stealth HTTP Client")
+        Self::create_builder(
+            target,
+            pm,
+            &crate::plugins::detection_evasion::stealth_policy::StealthPolicy::default(),
+        )?
+        .build()
+        .context("Failed to build Stealth HTTP Client")
     }
 
-    pub fn build_with_policy(target: &TargetHost, pm: &ProxyManager, policy: &crate::plugins::detection_evasion::stealth_policy::StealthPolicy) -> Result<reqwest::Client> {
-        Self::create_builder(target, pm, policy)?.build().context("Failed to build Policy-driven Stealth HTTP Client")
-    }
-
-    pub fn build_pinned(target: &TargetHost, pm: &ProxyManager, host: &str, addr: std::net::SocketAddr) -> Result<reqwest::Client> {
-        Self::create_builder(target, pm, &crate::plugins::detection_evasion::stealth_policy::StealthPolicy::default())?
-            .resolve(host, addr)
+    pub fn build_with_policy(
+        target: &TargetHost,
+        pm: &ProxyManager,
+        policy: &crate::plugins::detection_evasion::stealth_policy::StealthPolicy,
+    ) -> Result<reqwest::Client> {
+        Self::create_builder(target, pm, policy)?
             .build()
-            .context("Failed to build Pinned Stealth HTTP Client")
+            .context("Failed to build Policy-driven Stealth HTTP Client")
     }
 
-    pub fn build_pinned_infra(pm: &ProxyManager, host: &str, addr: std::net::SocketAddr) -> Result<reqwest::Client> {
+    pub fn build_pinned(
+        target: &TargetHost,
+        pm: &ProxyManager,
+        host: &str,
+        addr: std::net::SocketAddr,
+    ) -> Result<reqwest::Client> {
+        Self::create_builder(
+            target,
+            pm,
+            &crate::plugins::detection_evasion::stealth_policy::StealthPolicy::default(),
+        )?
+        .resolve(host, addr)
+        .build()
+        .context("Failed to build Pinned Stealth HTTP Client")
+    }
+
+    pub fn build_pinned_infra(
+        pm: &ProxyManager,
+        host: &str,
+        addr: std::net::SocketAddr,
+    ) -> Result<reqwest::Client> {
         pm.configure_stealth_builder(reqwest::Client::builder())?
             .resolve(host, addr)
             .danger_accept_invalid_certs(true)
@@ -33,10 +58,14 @@ impl StealthClientBuilder {
             .context("Failed to build Pinned Infra Client")
     }
 
-    fn create_builder(target: &TargetHost, pm: &ProxyManager, policy: &crate::plugins::detection_evasion::stealth_policy::StealthPolicy) -> Result<reqwest::ClientBuilder> {
+    fn create_builder(
+        target: &TargetHost,
+        pm: &ProxyManager,
+        policy: &crate::plugins::detection_evasion::stealth_policy::StealthPolicy,
+    ) -> Result<reqwest::ClientBuilder> {
         let mut headers = HeaderMap::new();
         let tc = &target.tactical_context;
-        
+
         let ua = if policy.user_agent_rotation {
             crate::utils::common::get_random_user_agent().to_string()
         } else {
@@ -45,7 +74,7 @@ impl StealthClientBuilder {
                 .unwrap_or("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
                 .to_string()
         };
-        
+
         headers.insert(reqwest::header::USER_AGENT, HeaderValue::from_str(&ua)?);
 
         if let Some(custom_headers) = tc.get("headers").and_then(|h| h.as_object()) {
@@ -61,7 +90,9 @@ impl StealthClientBuilder {
         }
 
         headers.entry(reqwest::header::ACCEPT).or_insert(HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"));
-        headers.entry(reqwest::header::ACCEPT_LANGUAGE).or_insert(HeaderValue::from_static("en-US,en;q=0.9"));
+        headers
+            .entry(reqwest::header::ACCEPT_LANGUAGE)
+            .or_insert(HeaderValue::from_static("en-US,en;q=0.9"));
 
         let mut builder = reqwest::Client::builder()
             .default_headers(headers)
@@ -73,7 +104,7 @@ impl StealthClientBuilder {
             // Note: For high-fidelity TLS impersonation, use build_impersonated() which returns a wreq::Client.
             // reqwest::ClientBuilder does not support JA3/JA4 spoofing natively.
         }
-        
+
         if !policy.follow_redirects {
             builder = builder.redirect(reqwest::redirect::Policy::none());
         }
@@ -85,10 +116,7 @@ impl StealthClientBuilder {
     /// Proxy routing is inherited from the ProxyManager (SOCKS5 path).
     /// Only available with the `tls-impersonation` feature.
     #[cfg(feature = "tls-impersonation")]
-    pub fn build_impersonated(
-        pm: &ProxyManager,
-        emulation: Emulation,
-    ) -> Result<wreq::Client> {
+    pub fn build_impersonated(pm: &ProxyManager, emulation: Emulation) -> Result<wreq::Client> {
         let mut builder = wreq::Client::builder().emulation(emulation);
         if let Some(proxy_url) = pm.pick_best_proxy() {
             let proxy = wreq::Proxy::all(&proxy_url)

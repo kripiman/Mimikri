@@ -1,8 +1,8 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use tracing::info;
 pub struct PacuScanner {
     binary_path: String,
@@ -16,9 +16,7 @@ impl Default for PacuScanner {
 impl PacuScanner {
     pub fn new() -> Self {
         let path = detect_tool("pacu");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 #[async_trait]
@@ -26,7 +24,7 @@ impl ScannerPlugin for PacuScanner {
     fn name(&self) -> &'static str {
         crate::models::PLUGIN_PACU
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -41,7 +39,9 @@ impl ScannerPlugin for PacuScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::CloudAudit]
@@ -59,7 +59,7 @@ impl ScannerPlugin for PacuScanner {
             Category::ExposedAsset,
             Severity::Info,
             &format!("Pacu AWS audit session is ready for {}.", target.host),
-            serde_json::json!({ "binary": self.binary_path })
+            serde_json::json!({ "binary": self.binary_path }),
         ));
         Ok(findings)
     }

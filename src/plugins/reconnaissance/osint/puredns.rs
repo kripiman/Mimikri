@@ -1,13 +1,15 @@
-use crate::plugins::{DiscoveryPlugin, Capability, PluginMetadata, RiskLevel, TargetType, DiscoveryResult};
-use crate::models::TargetHost;
-use crate::utils::tool_detection::detect_tool;
-use crate::utils::proxy::ProxyManager;
 use crate::core::capability_layer::ScanLayer;
+use crate::models::TargetHost;
+use crate::plugins::{
+    Capability, DiscoveryPlugin, DiscoveryResult, PluginMetadata, RiskLevel, TargetType,
+};
+use crate::utils::proxy::ProxyManager;
+use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
-use std::sync::Arc;
 use std::process::Stdio;
+use std::sync::Arc;
+use tracing::{info, warn};
 
 pub struct PurednsScanner {
     binary_path: String,
@@ -56,20 +58,26 @@ impl DiscoveryPlugin for PurednsScanner {
     }
 
     async fn discover(&self, target: &TargetHost) -> Result<Vec<DiscoveryResult>> {
-        info!("PurednsScanner: performing wildcard-filtered resolution for {}", target.host);
+        info!(
+            "PurednsScanner: performing wildcard-filtered resolution for {}",
+            target.host
+        );
 
         // 1. Prepare resolvers (Fail-safe default or from env)
-        let resolvers_path = std::env::var("PUREDNS_RESOLVERS").unwrap_or_else(|_| "/usr/share/puredns/resolvers.txt".to_string());
-        
-        // 2. We need a list of subdomains to resolve. 
-        // If this is a standalone discovery plugin, we might want to run a small brute force 
+        let resolvers_path = std::env::var("PUREDNS_RESOLVERS")
+            .unwrap_or_else(|_| "/usr/share/puredns/resolvers.txt".to_string());
+
+        // 2. We need a list of subdomains to resolve.
+        // If this is a standalone discovery plugin, we might want to run a small brute force
         // or resolve subdomains leant from other plugins if we had access to them.
         // For now, we'll perform a high-speed resolution of the target domain + common prefixes
         // as a baseline 'puredns' utility.
-        
-        let temp_input = tempfile::NamedTempFile::new().context("Failed to create temp input for Puredns")?;
-        let temp_output = tempfile::NamedTempFile::new().context("Failed to create temp output for Puredns")?;
-        
+
+        let temp_input =
+            tempfile::NamedTempFile::new().context("Failed to create temp input for Puredns")?;
+        let temp_output =
+            tempfile::NamedTempFile::new().context("Failed to create temp output for Puredns")?;
+
         let input_path = temp_input.path().to_string_lossy().to_string();
         let output_path = temp_output.path().to_string_lossy().to_string();
 
@@ -78,18 +86,26 @@ impl DiscoveryPlugin for PurednsScanner {
         {
             use std::io::Write;
             let mut file = std::fs::File::create(&input_path)?;
-            for sub in &["www", "dev", "api", "staging", "test", "vpn", "mail", "admin", "portal", "corp", "internal"] {
+            for sub in &[
+                "www", "dev", "api", "staging", "test", "vpn", "mail", "admin", "portal", "corp",
+                "internal",
+            ] {
                 writeln!(file, "{}.{}", sub, target.host)?;
             }
         }
 
-        let mut cmd = crate::utils::common::stealth_command(&self.binary_path, Some(&self.proxy_manager));
+        let mut cmd =
+            crate::utils::common::stealth_command(&self.binary_path, Some(&self.proxy_manager));
         cmd.arg("resolve")
             .arg(&input_path)
-            .arg("-r").arg(&resolvers_path)
-            .arg("--write").arg(&output_path)
-            .arg("--bin").arg(detect_tool("dnsx")) // Use dnsx for speed if available
-            .arg("-p").arg("50") // concurrency
+            .arg("-r")
+            .arg(&resolvers_path)
+            .arg("--write")
+            .arg(&output_path)
+            .arg("--bin")
+            .arg(detect_tool("dnsx")) // Use dnsx for speed if available
+            .arg("-p")
+            .arg("50") // concurrency
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -108,12 +124,19 @@ impl DiscoveryPlugin for PurednsScanner {
             while let Some(line) = lines.next_line().await? {
                 let domain = line.trim().to_string();
                 if !domain.is_empty() {
-                    discovered.push(DiscoveryResult { host: domain, metadata: serde_json::json!({}) });
+                    discovered.push(DiscoveryResult {
+                        host: domain,
+                        metadata: serde_json::json!({}),
+                    });
                 }
             }
         }
 
-        info!("PurednsScanner: found {} verified subdomains for {}", discovered.len(), target.host);
+        info!(
+            "PurednsScanner: found {} verified subdomains for {}",
+            discovered.len(),
+            target.host
+        );
         Ok(discovered)
     }
 }

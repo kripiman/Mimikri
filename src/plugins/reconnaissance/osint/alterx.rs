@@ -2,14 +2,14 @@
 // 🔧 AlterX: Subdomain permutation and generation
 // ⚡ Async DiscoveryPlugin wrapper
 
-use crate::plugins::{DiscoveryPlugin, Capability, DiscoveryResult};
 use crate::models::{TargetHost, PLUGIN_ALTERX};
+use crate::plugins::{Capability, DiscoveryPlugin, DiscoveryResult};
 use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
 use anyhow::Result;
-use tracing::{info, warn};
+use async_trait::async_trait;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct AlterXScanner {
     binary_path: String,
@@ -24,9 +24,7 @@ impl Default for AlterXScanner {
 impl AlterXScanner {
     pub fn new() -> Self {
         let path = detect_tool("alterx");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -63,8 +61,11 @@ impl DiscoveryPlugin for AlterXScanner {
     }
 
     async fn discover(&self, target: &TargetHost) -> Result<Vec<DiscoveryResult>> {
-        info!("🧬 ALTERX: Generating subdomain permutations for {}", target.host);
-        
+        info!(
+            "🧬 ALTERX: Generating subdomain permutations for {}",
+            target.host
+        );
+
         // alterx -i domain.com -silent
         let output = match tokio::time::timeout(
             std::time::Duration::from_secs(60),
@@ -74,22 +75,38 @@ impl DiscoveryPlugin for AlterXScanner {
                 .arg("-silent")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .output()
-        ).await {
+                .output(),
+        )
+        .await
+        {
             Ok(Ok(o)) => o,
             _ => {
-                warn!("⚠️ ALTERX: Execution failed or timed out for {}", target.host);
+                warn!(
+                    "⚠️ ALTERX: Execution failed or timed out for {}",
+                    target.host
+                );
                 return Ok(Vec::new());
             }
         };
 
         let content = String::from_utf8_lossy(&output.stdout);
-        let permutations: Vec<String> = content.lines()
+        let permutations: Vec<String> = content
+            .lines()
             .map(|l| l.trim().to_string())
             .filter(|l| !l.is_empty())
             .collect();
 
-        info!("✨ ALTERX: Generated {} permutations for {}", permutations.len(), target.host);
-        Ok(permutations.into_iter().map(|s| DiscoveryResult { host: s, metadata: serde_json::json!({}) }).collect())
+        info!(
+            "✨ ALTERX: Generated {} permutations for {}",
+            permutations.len(),
+            target.host
+        );
+        Ok(permutations
+            .into_iter()
+            .map(|s| DiscoveryResult {
+                host: s,
+                metadata: serde_json::json!({}),
+            })
+            .collect())
     }
 }

@@ -1,12 +1,16 @@
+use super::{enrichment, reactive, scope_guard};
+use crate::core::approval_gate::ApprovalGate;
+use crate::core::capability_layer::ScanLayerPolicy;
+use crate::models::{
+    Category, Finding, Severity, TargetHost, TargetStatus, FINDING_PLUGIN_ERROR,
+    FINDING_PLUGIN_PANIC,
+};
+use crate::plugins::ScannerPlugin;
 use std::sync::Arc;
 use tokio::task::JoinSet;
 use tracing::error;
-use crate::models::{TargetHost, Finding, Category, Severity, TargetStatus, FINDING_PLUGIN_ERROR, FINDING_PLUGIN_PANIC};
-use crate::plugins::ScannerPlugin;
-use crate::core::capability_layer::ScanLayerPolicy;
-use crate::core::approval_gate::ApprovalGate;
-use super::{reactive, enrichment, scope_guard};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn dispatch_scan(
     target: Arc<TargetHost>,
     plugins: Arc<Vec<Box<dyn ScannerPlugin>>>,
@@ -21,20 +25,25 @@ pub async fn dispatch_scan(
 ) -> (Vec<Finding>, bool) {
     let mut join_set = JoinSet::new();
 
-    let priority_set: std::collections::HashSet<String> = target.tactical_context
+    let priority_set: std::collections::HashSet<String> = target
+        .tactical_context
         .get("priority_plugins")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     for pass in [true, false] {
         for i in 0..plugins.len() {
             let p = &plugins[i];
             let is_priority = priority_set.contains(p.name());
-            if pass != is_priority { continue; }
-            
+            if pass != is_priority {
+                continue;
+            }
+
             if p.metadata().target_type != target.target_type {
                 continue;
             }
@@ -61,7 +70,7 @@ pub async fn dispatch_scan(
                 scan_id: target.scan_id,
                 scope_id: target.scope_id.clone(),
             };
-            
+
             let lp = layer_policy;
             let approval_gate = Arc::clone(&approval_gate);
             let memory_semaphore_clone = memory_semaphore.clone();
@@ -73,32 +82,42 @@ pub async fn dispatch_scan(
             join_set.spawn(async move {
                 let p = &plugins_clone[i];
                 let meta = p.metadata();
-                
+
                 if !lp.is_plugin_allowed(meta.layer) {
                     return (p.name().to_string(), Ok(Vec::new()));
                 }
 
-                if lp.needs_approval(meta.layer)
-                    && !approval_gate.is_approved(p.name()).await {
-                        return (p.name().to_string(), Ok(Vec::new()));
-                    }
-                
+                if lp.needs_approval(meta.layer) && !approval_gate.is_approved(p.name()).await {
+                    return (p.name().to_string(), Ok(Vec::new()));
+                }
+
                 let multiplier = if memory_monitor_clone.should_trigger_backpressure() {
-                    2.0 
+                    2.0
                 } else {
                     1.0
                 };
-                
+
                 let total_capacity = memory_monitor_clone.hard_limit_mb();
                 let base_permits = meta.cost.max(1) * (total_capacity / 10).max(10);
-                let permits_needed = ((base_permits as f32 * multiplier) as u32).min(total_capacity.saturating_sub(1));
-                
+                let permits_needed = ((base_permits as f32 * multiplier) as u32)
+                    .min(total_capacity.saturating_sub(1));
+
                 // Concurrency control: Acquire a spawner concurrency permit
                 let _concurrency_permit = concurrency_semaphore_clone.acquire().await;
                 let _permit = memory_semaphore_clone.acquire_many(permits_needed).await;
-                
+
                 match p.check_dependencies().await {
-                    Ok(true) => (p.name().to_string(), p.execute_safe_scan(&target_snapshot, policy_clone, strict_scope_val, approval_gate, approval_timeout_secs).await),
+                    Ok(true) => (
+                        p.name().to_string(),
+                        p.execute_safe_scan(
+                            &target_snapshot,
+                            policy_clone,
+                            strict_scope_val,
+                            approval_gate,
+                            approval_timeout_secs,
+                        )
+                        .await,
+                    ),
                     Ok(false) => (p.name().to_string(), Ok(Vec::new())),
                     Err(e) => (p.name().to_string(), Err(e)),
                 }
@@ -111,38 +130,36 @@ pub async fn dispatch_scan(
 
     while let Some(join_res) = join_set.join_next().await {
         match join_res {
-            Ok((name, res)) => {
-                match res {
-                    Ok(mut findings) => {
-                        for f in findings.iter_mut() {
-                            if f.core.source_plugin.is_none() {
-                                f.core.source_plugin = Some(name.clone());
-                            }
-                            f.core.scope_id = target.scope_id.clone();
+            Ok((name, res)) => match res {
+                Ok(mut findings) => {
+                    for f in findings.iter_mut() {
+                        if f.core.source_plugin.is_none() {
+                            f.core.source_plugin = Some(name.clone());
                         }
-                        all_findings.append(&mut findings);
+                        f.core.scope_id = target.scope_id.clone();
                     }
-                    Err(e) => {
-                        error!("Plugin {} error on {}: {}", name, target.host, e);
-                        all_findings.push(Finding::new(
-                            FINDING_PLUGIN_ERROR,
-                            Category::Misconfiguration,
-                            Severity::Info, 
-                            &format!("Plugin {} failed", name),
-                            serde_json::json!({"error": e.to_string()})
-                        ));
-                        plugin_error = true;
-                    }
+                    all_findings.append(&mut findings);
                 }
-            }
+                Err(e) => {
+                    error!("Plugin {} error on {}: {}", name, target.host, e);
+                    all_findings.push(Finding::new(
+                        FINDING_PLUGIN_ERROR,
+                        Category::Misconfiguration,
+                        Severity::Info,
+                        &format!("Plugin {} failed", name),
+                        serde_json::json!({"error": e.to_string()}),
+                    ));
+                    plugin_error = true;
+                }
+            },
             Err(join_err) => {
                 error!("Target task panicked: {}", join_err);
                 all_findings.push(Finding::new(
                     FINDING_PLUGIN_PANIC,
                     Category::Misconfiguration,
-                    Severity::Critical, 
+                    Severity::Critical,
                     "A scanner plugin panicked during execution!",
-                    serde_json::json!({"error": join_err.to_string()})
+                    serde_json::json!({"error": join_err.to_string()}),
                 ));
                 plugin_error = true;
             }
@@ -168,10 +185,7 @@ pub struct TargetProcessContext {
     pub concurrency_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
-pub async fn process_target(
-    mut target: TargetHost,
-    ctx: TargetProcessContext,
-) -> TargetHost {
+pub async fn process_target(mut target: TargetHost, ctx: TargetProcessContext) -> TargetHost {
     // Scope check
     if !scope_guard::check_scope(&mut target, &ctx.policy, ctx.strict_scope) {
         return target;
@@ -186,7 +200,8 @@ pub async fn process_target(
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
-    ctx.dashboard_targets.insert(target.host.clone(), target.clone());
+    ctx.dashboard_targets
+        .insert(target.host.clone(), target.clone());
     if let Some(ref tx) = ctx.dashboard_tx {
         for f in target.findings.iter() {
             let _ = tx.send(f.clone());
@@ -195,10 +210,11 @@ pub async fn process_target(
 
     target.status = TargetStatus::Scanning;
     target.version += 1;
-    ctx.dashboard_targets.insert(target.host.clone(), target.clone());
-    
+    ctx.dashboard_targets
+        .insert(target.host.clone(), target.clone());
+
     let target_arc = Arc::new(target);
-    
+
     // Dispatch scan
     let (mut all_findings, plugin_error) = dispatch_scan(
         target_arc.clone(),
@@ -211,7 +227,8 @@ pub async fn process_target(
         ctx.policy.clone(),
         ctx.strict_scope,
         ctx.approval_timeout_secs,
-    ).await;
+    )
+    .await;
 
     ctx.dashboard_targets.remove(&target_arc.host);
     let mut target = Arc::try_unwrap(target_arc).unwrap_or_else(|arc| (*arc).clone());
@@ -219,13 +236,22 @@ pub async fn process_target(
     if !all_findings.is_empty() {
         // Ingest findings
         for f in &all_findings {
-            ctx.inventory.ingest_finding(f.clone(), crate::core::orchestrator::swarm::inventory::TrustLevel::Private);
+            ctx.inventory.ingest_finding(
+                f.clone(),
+                crate::core::orchestrator::swarm::inventory::TrustLevel::Private,
+            );
         }
 
         // Reactive logic
         let mut extra = reactive::run_reactive_logic(
-            &target, &all_findings, &ctx.plugins, &ctx.lp, &ctx.approval_gate, &ctx.inventory
-        ).await;
+            &target,
+            &all_findings,
+            &ctx.plugins,
+            &ctx.lp,
+            &ctx.approval_gate,
+            &ctx.inventory,
+        )
+        .await;
         all_findings.append(&mut extra);
 
         // Enrichment
@@ -260,7 +286,8 @@ pub async fn process_target(
             let _ = tx.send(f.clone());
         }
     }
-    ctx.dashboard_targets.insert(target.host.clone(), target.clone());
+    ctx.dashboard_targets
+        .insert(target.host.clone(), target.clone());
 
     target
 }

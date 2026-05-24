@@ -1,7 +1,7 @@
-use tracing::{info, warn};
-use crate::models::{TargetHost, Finding, Category, Severity, TargetStatus};
 use crate::core::policy::PolicyProvider;
+use crate::models::{Category, Finding, Severity, TargetHost, TargetStatus};
 use std::sync::Arc;
+use tracing::{info, warn};
 
 pub fn check_scope(
     target: &mut TargetHost,
@@ -10,7 +10,10 @@ pub fn check_scope(
 ) -> bool {
     if !policy.is_target_allowed(&target.host) {
         if strict_scope {
-            warn!("🛡️ V14.2 SCOPE: Target '{}' is OUT OF SCOPE. Rejecting (Fail-Closed).", target.host);
+            warn!(
+                "🛡️ V14.2 SCOPE: Target '{}' is OUT OF SCOPE. Rejecting (Fail-Closed).",
+                target.host
+            );
             target.status = TargetStatus::Dead;
             target.version += 1;
             let mut findings = (*target.findings).clone();
@@ -19,7 +22,7 @@ pub fn check_scope(
                 Category::Misconfiguration,
                 Severity::Critical,
                 &format!("Target '{}' is out of authorized scope!", target.host),
-                serde_json::json!({"host": target.host})
+                serde_json::json!({"host": target.host}),
             ));
             target.findings = Arc::new(findings);
             return false;

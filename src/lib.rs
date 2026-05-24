@@ -3,8 +3,8 @@
 
 #![warn(clippy::all)]
 
-pub mod models;
-pub mod infrastructure;
 pub mod core;
+pub mod infrastructure;
+pub mod models;
 pub mod plugins;
 pub mod utils;

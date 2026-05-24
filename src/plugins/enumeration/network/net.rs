@@ -1,6 +1,6 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding};
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
+use crate::models::{Finding, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
 
 pub struct NmapScanner<M: ExecutorMode> {
     scripts: Option<String>,
@@ -17,8 +17,8 @@ pub struct NmapScanner<M: ExecutorMode> {
 impl<M: ExecutorMode> NmapScanner<M> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        scripts: Option<String>, 
-        stealth: bool, 
+        scripts: Option<String>,
+        stealth: bool,
         service_detection: bool,
         scan_type: String,
         fragment: bool,
@@ -42,16 +42,19 @@ impl<M: ExecutorMode> NmapScanner<M> {
 }
 
 use crate::plugins::enumeration::network::nmap::parse_nmap_xml;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn, error};
-use std::sync::Arc;
 use once_cell::sync::Lazy;
+use std::sync::Arc;
+use tracing::{error, info, warn};
 
 // V14.1 HARDENING: Domain-specific regexes for argument validation (Consulted before spawn)
-static TARGET_HOST_RE: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"^[a-zA-Z0-9.\-:]+$").unwrap());
-static DECOY_RE: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"^[a-zA-Z0-9.,_]+$").unwrap());
-static SCRIPT_RE: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"^[a-zA-Z0-9,-]+$").unwrap());
+static TARGET_HOST_RE: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"^[a-zA-Z0-9.\-:]+$").unwrap());
+static DECOY_RE: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"^[a-zA-Z0-9.,_]+$").unwrap());
+static SCRIPT_RE: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"^[a-zA-Z0-9,-]+$").unwrap());
 
 #[async_trait]
 impl<M: ExecutorMode> ScannerPlugin for NmapScanner<M> {
@@ -87,14 +90,26 @@ impl<M: ExecutorMode> ScannerPlugin for NmapScanner<M> {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         let target_addr = target.pinned_addr()?;
-        info!("NmapScanner: launching scan against {} (via {})", target.host, target_addr);
-        
+        info!(
+            "NmapScanner: launching scan against {} (via {})",
+            target.host, target_addr
+        );
+
         if !TARGET_HOST_RE.is_match(&target.host) || target.host.starts_with('-') {
-            warn!("NmapScanner: Skipping invalid/unsafe target: {}", target.host);
+            warn!(
+                "NmapScanner: Skipping invalid/unsafe target: {}",
+                target.host
+            );
             return Ok(Vec::new());
         }
 
-        let mut args = vec!["-n".to_string(), "-Pn".to_string(), "--open".to_string(), "-oX".to_string(), "-".to_string()];
+        let mut args = vec![
+            "-n".to_string(),
+            "-Pn".to_string(),
+            "--open".to_string(),
+            "-oX".to_string(),
+            "-".to_string(),
+        ];
 
         // 1. Port selection
         if let Some(ports) = &self.ports {
@@ -107,7 +122,11 @@ impl<M: ExecutorMode> ScannerPlugin for NmapScanner<M> {
         }
 
         // 2. Timing and Retries
-        let (speed, timeout) = if self.stealth { ("-T2", "12h") } else { ("-T4", if self.vuln_scan { "24h" } else { "4h" }) };
+        let (speed, timeout) = if self.stealth {
+            ("-T2", "12h")
+        } else {
+            ("-T4", if self.vuln_scan { "24h" } else { "4h" })
+        };
         args.push(speed.to_string());
         args.push("--host-timeout".to_string());
         args.push(timeout.to_string());
@@ -116,35 +135,51 @@ impl<M: ExecutorMode> ScannerPlugin for NmapScanner<M> {
 
         // 3. Scan Type & Stealth features
         args.push(format!("-{}", self.scan_type));
-        if self.fragment { args.push("-f".to_string()); }
+        if self.fragment {
+            args.push("-f".to_string());
+        }
         if let Some(decoy) = &self.decoy {
-            if DECOY_RE.is_match(decoy) && !decoy.starts_with('-') { args.push(format!("-D{}", decoy)); }
+            if DECOY_RE.is_match(decoy) && !decoy.starts_with('-') {
+                args.push(format!("-D{}", decoy));
+            }
         }
 
         // 4. Vulnerability & Scripts
         if self.vuln_scan {
             args.push("-sV".to_string());
-            args.push("--version-intensity".to_string()); args.push("9".to_string());
+            args.push("--version-intensity".to_string());
+            args.push("9".to_string());
             args.push("-O".to_string());
             args.push("--osscan-guess".to_string());
             args.push("--script=vuln,exploit,auth,default,discovery".to_string());
-            args.push("--script-timeout".to_string()); args.push("10m".to_string());
+            args.push("--script-timeout".to_string());
+            args.push("10m".to_string());
         } else {
-            if self.service_detection { args.push("-sV".to_string()); }
+            if self.service_detection {
+                args.push("-sV".to_string());
+            }
             if let Some(scripts) = &self.scripts {
-                if SCRIPT_RE.is_match(scripts) { args.push(format!("--script={}", scripts)); }
+                if SCRIPT_RE.is_match(scripts) {
+                    args.push(format!("--script={}", scripts));
+                }
             }
         }
 
         args.push(target_addr.to_string());
 
         // V14.1 SOVEREIGN EXECUTION: Delegate to unified StealthExecutor
-        let output = self.executor.execute_and_wait("nmap", args).await
+        let output = self
+            .executor
+            .execute_and_wait("nmap", args)
+            .await
             .context("Fallo en la ejecución de Nmap a través del StealthExecutor")?;
 
         if !output.status.success() {
-             error!("Nmap failed on {} with status: {}", target.host, output.status);
-             return Ok(Vec::new());
+            error!(
+                "Nmap failed on {} with status: {}",
+                target.host, output.status
+            );
+            return Ok(Vec::new());
         }
 
         // V14.1 DOMAIN PARSING: Delegate to isolated domain parser

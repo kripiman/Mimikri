@@ -1,17 +1,20 @@
 use axum::{
     extract::{Path, State},
-    response::{IntoResponse, sse::{Event, Sse}},
+    response::{
+        sse::{Event, Sse},
+        IntoResponse,
+    },
     Json,
 };
 use futures::stream::Stream;
+use serde_json::json;
 use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
-use serde_json::json;
 
-use crate::core::mcp::protocol::JsonRpcRequest;
 use super::{McpServer, ValidatedOperator};
+use crate::core::mcp::protocol::JsonRpcRequest;
 
 pub async fn sse_handler(
     State(state): State<Arc<McpServer>>,
@@ -19,11 +22,17 @@ pub async fn sse_handler(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = mpsc::channel(100);
-    
+
     state.sessions.insert(session_id.clone(), tx.clone());
-    
+
     // El cliente MCP necesita conocer su endpoint de mensajes
-    let _ = tx.send(Event::default().event("endpoint").data(format!("/message/{}", session_id))).await;
+    let _ = tx
+        .send(
+            Event::default()
+                .event("endpoint")
+                .data(format!("/message/{}", session_id)),
+        )
+        .await;
 
     let stream = ReceiverStream::new(rx).map(Ok);
 
@@ -53,8 +62,12 @@ pub async fn message_handler(
         }),
         "tools/list" => {
             let registry = crate::plugins::get_registry((*state.config).clone()); // Clone inner for usage
-            let plugin_names: Vec<String> = registry.scanners.iter().map(|p| p.name().to_string()).collect();
-            
+            let plugin_names: Vec<String> = registry
+                .scanners
+                .iter()
+                .map(|p| p.name().to_string())
+                .collect();
+
             // SUPER-TOOL ÚNICA para ahorro de tokens
             json!({
                 "tools": [
@@ -169,21 +182,30 @@ pub async fn message_handler(
                     }
                 ]
             })
-        },
+        }
         "tools/call" => {
             if let Some(params) = payload.params {
-                match serde_json::from_value::<crate::core::mcp::protocol::CallToolRequest>(params) {
+                match serde_json::from_value::<crate::core::mcp::protocol::CallToolRequest>(params)
+                {
                     Ok(call) => match call.name.as_str() {
                         "osint_route_task" => super::tools::handle_route_task(call.arguments).await,
-                        "osint_execute_plugin" => super::execute::handle_execute_plugin(&state, call.arguments).await,
-                        "osint_compress_memory_file" => super::tools::handle_compress_memory(&state, call.arguments).await,
+                        "osint_execute_plugin" => {
+                            super::execute::handle_execute_plugin(&state, call.arguments).await
+                        }
+                        "osint_compress_memory_file" => {
+                            super::tools::handle_compress_memory(&state, call.arguments).await
+                        }
                         "mcp_get_stats" => super::tools::handle_get_stats(&state).await,
                         "osint_detect_waste" => super::tools::handle_detect_waste(&state).await,
-                        "osint_smart_read" => super::tools::handle_smart_read(&state, call.arguments).await,
-                        "osint_checkpoint_save" => super::tools::handle_checkpoint_save(&state, call.arguments).await,
-                        _ => json!({"error": {"code": -32601, "message": "Tool not found"}})
+                        "osint_smart_read" => {
+                            super::tools::handle_smart_read(&state, call.arguments).await
+                        }
+                        "osint_checkpoint_save" => {
+                            super::tools::handle_checkpoint_save(&state, call.arguments).await
+                        }
+                        _ => json!({"error": {"code": -32601, "message": "Tool not found"}}),
                     },
-                    Err(_) => json!({"error": {"code": -32602, "message": "Invalid params"}})
+                    Err(_) => json!({"error": {"code": -32602, "message": "Invalid params"}}),
                 }
             } else {
                 json!({"error": {"code": -32602, "message": "Invalid params"}})

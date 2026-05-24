@@ -1,6 +1,6 @@
-use tracing::info;
-use anyhow::Result;
 use super::manager::ProxyManager;
+use anyhow::Result;
+use tracing::info;
 
 impl ProxyManager {
     /// V13: Wraps a std::process::Command with tool-specific proxy flags or proxychains.
@@ -18,17 +18,28 @@ impl ProxyManager {
                 }
                 _ => {
                     // Professional Mode: Use proxychains-ng for everything else
-                    info!("🛡️ ProxyManager: Wrapping '{}' with proxychains-ng via {}", tool, proxy_url);
-                    let clean_proxy = proxy_url.strip_prefix("socks5h://").unwrap_or(&proxy_url).strip_prefix("socks5://").unwrap_or(&proxy_url);
+                    info!(
+                        "🛡️ ProxyManager: Wrapping '{}' with proxychains-ng via {}",
+                        tool, proxy_url
+                    );
+                    let clean_proxy = proxy_url
+                        .strip_prefix("socks5h://")
+                        .unwrap_or(&proxy_url)
+                        .strip_prefix("socks5://")
+                        .unwrap_or(&proxy_url);
                     let addr_part = clean_proxy.split('@').next_back().unwrap_or(clean_proxy);
                     let parts: Vec<&str> = addr_part.split(':').collect();
-                    
+
                     if parts.len() == 2 {
                         let ip = parts[0];
                         let port = parts[1];
                         let conf = format!("strict_chain\nproxy_dns\nremote_dns_subnet 224\ntcp_read_time_out 15000\ntcp_connect_time_out 8000\n[ProxyList]\nsocks5 {} {}\n", ip, port);
-                        
-                        let conf_path = std::env::temp_dir().join(format!("px_{}_{}.conf", std::process::id(), rand::random::<u32>()));
+
+                        let conf_path = std::env::temp_dir().join(format!(
+                            "px_{}_{}.conf",
+                            std::process::id(),
+                            rand::random::<u32>()
+                        ));
                         if let Err(e) = std::fs::write(&conf_path, conf) {
                             tracing::warn!("Failed to write proxychains config: {}", e);
                             args.insert(0, tool.to_string());

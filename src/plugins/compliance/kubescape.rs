@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding};
+use crate::models::{Finding, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct KubescapeScanner {
     binary_path: String,
@@ -20,9 +20,7 @@ impl Default for KubescapeScanner {
 impl KubescapeScanner {
     pub fn new() -> Self {
         let path = detect_tool("kubescape");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -32,8 +30,7 @@ impl ScannerPlugin for KubescapeScanner {
         "kubescape"
     }
 
-    
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -48,7 +45,9 @@ impl ScannerPlugin for KubescapeScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -58,13 +57,13 @@ impl ScannerPlugin for KubescapeScanner {
         Ok(crate::utils::check_tool_availability("kubescape").await)
     }
 
-
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("KubescapeScanner: scanning cluster/target {}", target.host);
 
         let mut child = Command::new(&self.binary_path)
             .arg("scan")
-            .arg("--format").arg("json")
+            .arg("--format")
+            .arg("json")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

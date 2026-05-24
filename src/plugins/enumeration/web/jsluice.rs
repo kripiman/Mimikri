@@ -1,13 +1,13 @@
-use crate::plugins::{ScannerPlugin, Capability, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category};
-use crate::utils::{detect_tool, check_tool_availability};
+use crate::models::constants::*;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, RiskLevel, ScannerPlugin, TargetType};
+use crate::utils::{check_tool_availability, detect_tool};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn, error};
+use std::io::Write;
 use std::process::Stdio;
 use tokio::process::Command;
-use crate::models::constants::*;
-use std::io::Write;
+use tracing::{error, info, warn};
 
 pub struct JsluiceScanner {
     binary_path: String,
@@ -22,9 +22,7 @@ impl Default for JsluiceScanner {
 impl JsluiceScanner {
     pub fn new() -> Self {
         let path = detect_tool("jsluice");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -37,23 +35,33 @@ impl ScannerPlugin for JsluiceScanner {
     fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
-            description: "Extract URLs and secrets from JavaScript files using AST parsing (BishopFox).".to_string(),
+            description:
+                "Extract URLs and secrets from JavaScript files using AST parsing (BishopFox)."
+                    .to_string(),
             target_type: TargetType::Web,
             risk_level: RiskLevel::Low,
             layer: crate::core::capability_layer::ScanLayer::Scanning,
             expected_duration: std::time::Duration::from_secs(60),
-            capabilities: vec![Capability::VulnerabilityScanning, Capability::InformationGathering],
+            capabilities: vec![
+                Capability::VulnerabilityScanning,
+                Capability::InformationGathering,
+            ],
             cost: 2,
             category: "Enumeration".to_string(),
             mitre_attacks: vec!["T1592".to_string(), "T1595".to_string()],
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("webapp".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
-        vec![Capability::VulnerabilityScanning, Capability::InformationGathering]
+        vec![
+            Capability::VulnerabilityScanning,
+            Capability::InformationGathering,
+        ]
     }
 
     async fn check_dependencies(&self) -> Result<bool> {
@@ -62,7 +70,7 @@ impl ScannerPlugin for JsluiceScanner {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("JsluiceScanner: scanning target {}", target.host);
-        
+
         // Sanity check binary existence
         if !self.check_dependencies().await.unwrap_or(false) {
             warn!("JsluiceScanner: jsluice binary not found. Skipping.");
@@ -73,7 +81,7 @@ impl ScannerPlugin for JsluiceScanner {
 
         // 1. Identify JS URLs from previous findings (e.g. from Katana)
         let mut js_urls = std::collections::HashSet::new();
-        
+
         for f in target.findings.iter() {
             if let Some(ev) = &f.evidence.primary {
                 // Katana/Gauplus format: "urls" array
@@ -89,7 +97,7 @@ impl ScannerPlugin for JsluiceScanner {
                 // Generic single "url", "uri", "endpoint", or "path" field
                 for key in ["url", "uri", "endpoint", "path"] {
                     if let Some(url_str) = ev.data.get(key).and_then(|u| u.as_str()) {
-                         if is_js_file(url_str) {
+                        if is_js_file(url_str) {
                             js_urls.insert(url_str.to_string());
                         }
                     }
@@ -103,7 +111,10 @@ impl ScannerPlugin for JsluiceScanner {
         }
 
         if js_urls.is_empty() {
-            info!("JsluiceScanner: no JS files found in previous findings for {}", target.host);
+            info!(
+                "JsluiceScanner: no JS files found in previous findings for {}",
+                target.host
+            );
             return Ok(findings);
         }
 
@@ -113,7 +124,7 @@ impl ScannerPlugin for JsluiceScanner {
 
         for url in js_urls {
             info!("JsluiceScanner: analyzing JS file {}", url);
-            
+
             // Download to temp file
             let response = match client.get(&url).send().await {
                 Ok(resp) => resp,
@@ -138,12 +149,12 @@ impl ScannerPlugin for JsluiceScanner {
                     continue;
                 }
             };
-            
+
             if let Err(e) = temp.write_all(content.as_bytes()) {
                 error!("JsluiceScanner: failed to write to temp file: {}", e);
                 continue;
             }
-            
+
             let temp_path = temp.path().to_string_lossy().to_string();
 
             // Analyze Secrets
@@ -166,17 +177,20 @@ impl ScannerPlugin for JsluiceScanner {
 impl JsluiceScanner {
     async fn run_jsluice_secrets(&self, source_url: &str, file_path: &str) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
-        let output = tokio::time::timeout(std::time::Duration::from_secs(30), Command::new(&self.binary_path)
-            .arg("secrets")
-            .arg(file_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output())
-            .await
-            .context("Jsluice secrets execution timed out")?
-            .context("Failed to run jsluice secrets")?;
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            Command::new(&self.binary_path)
+                .arg("secrets")
+                .arg(file_path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output(),
+        )
+        .await
+        .context("Jsluice secrets execution timed out")?
+        .context("Failed to run jsluice secrets")?;
 
         if !output.status.success() {
             return Ok(findings);
@@ -185,16 +199,22 @@ impl JsluiceScanner {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-                let kind = json.get("kind").and_then(|k| k.as_str()).unwrap_or("unknown");
+                let kind = json
+                    .get("kind")
+                    .and_then(|k| k.as_str())
+                    .unwrap_or("unknown");
                 findings.push(Finding::new(
                     FINDING_JS_SECRET,
                     Category::CredentialLeak,
                     Severity::High,
-                    &format!("Potential {} found in JavaScript file: {}", kind, source_url),
+                    &format!(
+                        "Potential {} found in JavaScript file: {}",
+                        kind, source_url
+                    ),
                     serde_json::json!({
                         "source_url": source_url,
                         "secret_info": json,
-                    })
+                    }),
                 ));
             }
         }
@@ -204,17 +224,20 @@ impl JsluiceScanner {
 
     async fn run_jsluice_urls(&self, source_url: &str, file_path: &str) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        
-        let output = tokio::time::timeout(std::time::Duration::from_secs(30), Command::new(&self.binary_path)
-            .arg("urls")
-            .arg(file_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output())
-            .await
-            .context("Jsluice urls execution timed out")?
-            .context("Failed to run jsluice urls")?;
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            Command::new(&self.binary_path)
+                .arg("urls")
+                .arg(file_path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output(),
+        )
+        .await
+        .context("Jsluice urls execution timed out")?
+        .context("Failed to run jsluice urls")?;
 
         if !output.status.success() {
             return Ok(findings);
@@ -235,11 +258,15 @@ impl JsluiceScanner {
                 FINDING_JS_ENDPOINT,
                 Category::Recon,
                 Severity::Info,
-                &format!("Discovered {} new endpoints in {}", discovered_urls.len(), source_url),
+                &format!(
+                    "Discovered {} new endpoints in {}",
+                    discovered_urls.len(),
+                    source_url
+                ),
                 serde_json::json!({
                     "source_url": source_url,
                     "discovered_endpoints": discovered_urls,
-                })
+                }),
             ));
         }
 

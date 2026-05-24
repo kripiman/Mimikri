@@ -1,8 +1,8 @@
 pub mod assets;
 pub mod handlers;
 pub mod models;
-pub mod state;
 pub mod probe;
+pub mod state;
 
 pub use models::*;
 pub use state::*;
@@ -11,10 +11,10 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use ed25519_dalek::{Signer, SigningKey};
 use std::sync::Arc;
-use ed25519_dalek::{SigningKey, Signer};
-use tracing::{info, error};
+use tower_http::cors::{AllowOrigin, CorsLayer};
+use tracing::{error, info};
 
 pub fn generate_dashboard_token(
     signing_key: &SigningKey,
@@ -23,8 +23,9 @@ pub fn generate_dashboard_token(
 ) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap().as_secs();
-    
+        .unwrap()
+        .as_secs();
+
     let mut payload = [0u8; 32];
     payload[0..16].copy_from_slice(&session_id);
     payload[16..24].copy_from_slice(&now.to_be_bytes());
@@ -34,7 +35,7 @@ pub fn generate_dashboard_token(
     let mut combined = Vec::with_capacity(96);
     combined.extend_from_slice(&payload);
     combined.extend_from_slice(&signature.to_bytes());
-    
+
     hex::encode(combined)
 }
 
@@ -48,13 +49,16 @@ pub async fn start_dashboard(state: Arc<state::DashboardState>, port: u16) {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(move |origin, _| {
             let origin_str = origin.to_str().unwrap_or("");
-            origin_str == format!("http://127.0.0.1:{}", port) || 
-            origin_str == format!("http://localhost:{}", port) ||
-            origin_str == "https://mimikri.me" ||
-            origin_str == "http://mimikri.me"
+            origin_str == format!("http://127.0.0.1:{}", port)
+                || origin_str == format!("http://localhost:{}", port)
+                || origin_str == "https://mimikri.me"
+                || origin_str == "http://mimikri.me"
         }))
         .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
-        .allow_headers([axum::http::header::AUTHORIZATION, axum::http::header::CONTENT_TYPE]);
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+        ]);
 
     // Rate limiting disabled temporarily due to tower-governor compatibility issues.
 
@@ -64,7 +68,10 @@ pub async fn start_dashboard(state: Arc<state::DashboardState>, port: u16) {
         .route("/login", get(assets::serve_login))
         .route("/:path", get(assets::serve_asset))
         .route("/api/v1/targets", get(handlers::get_targets))
-        .route("/api/v1/targets/:host/findings", get(handlers::get_target_findings))
+        .route(
+            "/api/v1/targets/:host/findings",
+            get(handlers::get_target_findings),
+        )
         .route("/api/v1/stats", get(handlers::get_stats_handler))
         .route("/api/v1/metrics", get(handlers::get_metrics))
         .route("/api/v1/roi/rankings", get(handlers::get_roi_rankings))
@@ -74,7 +81,10 @@ pub async fn start_dashboard(state: Arc<state::DashboardState>, port: u16) {
         .route("/api/v1/containers", get(handlers::get_containers))
         .route("/api/v1/findings/stream", get(handlers::findings_stream))
         .route("/api/v1/approvals", get(handlers::get_approvals))
-        .route("/api/v1/approvals/:id/decision", post(handlers::post_approval_decision))
+        .route(
+            "/api/v1/approvals/:id/decision",
+            post(handlers::post_approval_decision),
+        )
         .route("/api/v2/missions", post(handlers::submit_mission))
         .route("/api/v2/scans/mobile", post(handlers::submit_mobile_scan))
         .route("/api/v2/export", post(handlers::export_report))

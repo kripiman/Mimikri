@@ -51,7 +51,7 @@ pub struct Port {
     #[serde(rename = "@protocol")]
     pub protocol: String,
     pub service: Option<Service>,
-    pub script: Option<Vec<Script>>, 
+    pub script: Option<Vec<Script>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,11 +140,11 @@ pub fn suggest_exploit_vector(script_id: &str, severity: &Severity) -> Option<St
 pub fn parse_nmap_xml<R: BufRead>(reader: R) -> Result<Vec<Finding>> {
     let mut reader = Reader::from_reader(reader);
     reader.trim_text(true);
-    
+
     let mut local_findings = Vec::new();
     let mut buf = Vec::new();
-    const MAX_FINDINGS: usize = 1000; 
-    
+    const MAX_FINDINGS: usize = 1000;
+
     // Streaming parsing state
     let mut current_port: Option<u16> = None;
     let mut current_protocol: String = String::new();
@@ -193,7 +193,7 @@ pub fn parse_nmap_xml<R: BufRead>(reader: R) -> Result<Vec<Finding>> {
                                 }
                             }
                         }
-                        
+
                         if let Some(portid) = current_port {
                             let severity = classify_script_severity(&id, &output);
                             let category = match severity {
@@ -204,7 +204,7 @@ pub fn parse_nmap_xml<R: BufRead>(reader: R) -> Result<Vec<Finding>> {
                                 Severity::Critical => format!("{}-{}", crate::models::FINDING_VULN_CRITICAL, id),
                                 _ => format!("{}-{}", crate::models::FINDING_NSE_SCRIPT, id),
                             };
-                            
+
                             let mut finding = Finding::new(
                                 &finding_id,
                                 category,

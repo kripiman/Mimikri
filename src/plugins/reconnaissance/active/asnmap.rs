@@ -1,10 +1,12 @@
-use crate::plugins::{DiscoveryPlugin, Capability, PluginMetadata, RiskLevel, TargetType, DiscoveryResult};
-use crate::models::{TargetHost};
+use crate::models::TargetHost;
+use crate::plugins::{
+    Capability, DiscoveryPlugin, DiscoveryResult, PluginMetadata, RiskLevel, TargetType,
+};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
 use std::process::Stdio;
+use tracing::{info, warn};
 
 pub struct AsnmapScanner {
     binary_path: String,
@@ -19,9 +21,7 @@ impl Default for AsnmapScanner {
 impl AsnmapScanner {
     pub fn new() -> Self {
         let path = detect_tool("asnmap");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -58,7 +58,8 @@ impl DiscoveryPlugin for AsnmapScanner {
         info!("AsnmapScanner: launching mapping for {}", target.host);
 
         let child = tokio::process::Command::new(&self.binary_path)
-            .arg("-a").arg(&target.host)
+            .arg("-a")
+            .arg(&target.host)
             .arg("-silent")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -76,7 +77,10 @@ impl DiscoveryPlugin for AsnmapScanner {
         for line in stdout.lines() {
             let item = line.trim().to_string();
             if !item.is_empty() {
-                discovered.push(DiscoveryResult { host: item, metadata: serde_json::json!({}) });
+                discovered.push(DiscoveryResult {
+                    host: item,
+                    metadata: serde_json::json!({}),
+                });
             }
         }
 

@@ -1,14 +1,16 @@
-use crate::plugins::{DiscoveryPlugin, Capability, PluginMetadata, RiskLevel, TargetType, DiscoveryResult};
-use crate::models::TargetHost;
-use crate::utils::tool_detection::detect_tool_system;
 use crate::core::capability_layer::ScanLayer;
 use crate::models::constants::PLUGIN_SHUFFLEDNS;
+use crate::models::TargetHost;
+use crate::plugins::{
+    Capability, DiscoveryPlugin, DiscoveryResult, PluginMetadata, RiskLevel, TargetType,
+};
+use crate::utils::tool_detection::detect_tool_system;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::time::timeout;
+use tracing::{info, warn};
 
 pub struct ShufflednsScanner {
     binary_path: Option<String>,
@@ -18,22 +20,28 @@ pub struct ShufflednsScanner {
 }
 
 impl ShufflednsScanner {
-    pub fn new<M: crate::utils::executor::ExecutorMode>(config: &crate::plugins::GlobalConfig<M>) -> Self {
+    pub fn new<M: crate::utils::executor::ExecutorMode>(
+        config: &crate::plugins::GlobalConfig<M>,
+    ) -> Self {
         // Resolver binary_path
-        let binary_path = config.shuffledns_path.clone().or_else(|| {
-            match detect_tool_system("shuffledns") {
-                Ok(Some(path)) => Some(path.to_string_lossy().into_owned()),
-                _ => None,
-            }
-        });
+        let binary_path =
+            config
+                .shuffledns_path
+                .clone()
+                .or_else(|| match detect_tool_system("shuffledns") {
+                    Ok(Some(path)) => Some(path.to_string_lossy().into_owned()),
+                    _ => None,
+                });
 
         // Resolver massdns_path
-        let massdns_path = config.massdns_path.clone().or_else(|| {
-            match detect_tool_system("massdns") {
-                Ok(Some(path)) => Some(path.to_string_lossy().into_owned()),
-                _ => None,
-            }
-        });
+        let massdns_path =
+            config
+                .massdns_path
+                .clone()
+                .or_else(|| match detect_tool_system("massdns") {
+                    Ok(Some(path)) => Some(path.to_string_lossy().into_owned()),
+                    _ => None,
+                });
 
         Self {
             binary_path,
@@ -53,10 +61,11 @@ impl DiscoveryPlugin for ShufflednsScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "ShuffleDNS: MassDNS wrapper for bruteforcing and wildcard resolution.".to_string(),
+            description: "ShuffleDNS: MassDNS wrapper for bruteforcing and wildcard resolution."
+                .to_string(),
             target_type: TargetType::Osint,
             risk_level: RiskLevel::Safe, // Active bruteforcing, but safe against target integrity
-            layer: ScanLayer::Passive, // Grouped in recon layer
+            layer: ScanLayer::Passive,   // Grouped in recon layer
             category: "Reconnaissance".to_string(),
             expected_duration: Duration::from_secs(660), // Increased to 660s to avoid collision with the 600s hard timeout
             capabilities: self.capabilities(),
@@ -118,30 +127,46 @@ impl DiscoveryPlugin for ShufflednsScanner {
     }
 
     async fn discover(&self, target: &TargetHost) -> Result<Vec<DiscoveryResult>> {
-        info!("ShufflednsScanner: initiating subdomain bruteforce for {}", target.host);
+        info!(
+            "ShufflednsScanner: initiating subdomain bruteforce for {}",
+            target.host
+        );
 
         // Safe extraction avoiding unwrap() panic risks
-        let bin_path = self.binary_path.as_ref()
+        let bin_path = self
+            .binary_path
+            .as_ref()
             .context("ShufflednsScanner invariant violated: binary_path is None during discover")?;
-        let massdns_bin = self.massdns_path.as_ref()
-            .context("ShufflednsScanner invariant violated: massdns_path is None during discover")?;
-        let wordlist = self.wordlist_path.as_ref()
-            .context("ShufflednsScanner invariant violated: wordlist_path is None during discover")?;
-        let resolvers = self.resolvers_path.as_ref()
-            .context("ShufflednsScanner invariant violated: resolvers_path is None during discover")?;
+        let massdns_bin = self.massdns_path.as_ref().context(
+            "ShufflednsScanner invariant violated: massdns_path is None during discover",
+        )?;
+        let wordlist = self.wordlist_path.as_ref().context(
+            "ShufflednsScanner invariant violated: wordlist_path is None during discover",
+        )?;
+        let resolvers = self.resolvers_path.as_ref().context(
+            "ShufflednsScanner invariant violated: resolvers_path is None during discover",
+        )?;
 
-        let temp_output = tempfile::NamedTempFile::new().context("Failed to create temp output for ShuffleDNS")?;
+        let temp_output = tempfile::NamedTempFile::new()
+            .context("Failed to create temp output for ShuffleDNS")?;
         let output_path = temp_output.path().to_string_lossy().to_string();
 
         let mut cmd = tokio::process::Command::new(bin_path);
-        cmd.arg("-d").arg(&target.host)
-            .arg("-w").arg(wordlist)
-            .arg("-r").arg(resolvers)
-            .arg("-massdns").arg(massdns_bin)
-            .arg("-mode").arg("bruteforce")
-            .arg("-t").arg("100") // OPSEC Safe Concurrency
+        cmd.arg("-d")
+            .arg(&target.host)
+            .arg("-w")
+            .arg(wordlist)
+            .arg("-r")
+            .arg(resolvers)
+            .arg("-massdns")
+            .arg(massdns_bin)
+            .arg("-mode")
+            .arg("bruteforce")
+            .arg("-t")
+            .arg("100") // OPSEC Safe Concurrency
             .arg("-silent")
-            .arg("-o").arg(&output_path)
+            .arg("-o")
+            .arg(&output_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped()); // Piped stderr to capture critical binary errors even with -silent
@@ -171,12 +196,19 @@ impl DiscoveryPlugin for ShufflednsScanner {
             while let Some(line) = lines.next_line().await? {
                 let domain = line.trim().to_string();
                 if !domain.is_empty() {
-                    discovered.push(DiscoveryResult { host: domain, metadata: serde_json::json!({"source": "shuffledns_bruteforce"}) });
+                    discovered.push(DiscoveryResult {
+                        host: domain,
+                        metadata: serde_json::json!({"source": "shuffledns_bruteforce"}),
+                    });
                 }
             }
         }
 
-        info!("ShufflednsScanner: found {} verified subdomains for {}", discovered.len(), target.host);
+        info!(
+            "ShufflednsScanner: found {} verified subdomains for {}",
+            discovered.len(),
+            target.host
+        );
         Ok(discovered)
     }
 }

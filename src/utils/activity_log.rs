@@ -1,11 +1,11 @@
+use crate::models::Finding;
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use serde::{Serialize, Deserialize};
-use anyhow::{Result, Context};
+use std::sync::Arc;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
-use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::models::Finding;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -58,7 +58,9 @@ impl ActivityLog {
             .append(true)
             .open(&path)
             .await
-            .with_context(|| format!("ActivityLog: Failed to open log file at {}", path.display()))?;
+            .with_context(|| {
+                format!("ActivityLog: Failed to open log file at {}", path.display())
+            })?;
 
         Ok(Self {
             path,
@@ -66,7 +68,14 @@ impl ActivityLog {
         })
     }
 
-    pub async fn log(&self, kind: EventKind, actor: Actor, message: &str, target: Option<&str>, data: serde_json::Value) -> Result<()> {
+    pub async fn log(
+        &self,
+        kind: EventKind,
+        actor: Actor,
+        message: &str,
+        target: Option<&str>,
+        data: serde_json::Value,
+    ) -> Result<()> {
         let event = LogEvent {
             ts: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
             kind,
@@ -86,14 +95,20 @@ impl ActivityLog {
         Ok(())
     }
 
-    pub async fn log_finding(&self, finding: &Finding, actor: Actor, target: Option<&str>) -> Result<()> {
+    pub async fn log_finding(
+        &self,
+        finding: &Finding,
+        actor: Actor,
+        target: Option<&str>,
+    ) -> Result<()> {
         self.log(
             EventKind::Finding,
             actor,
             &format!("New finding discovered: {}", finding.core.title),
             target,
             serde_json::to_value(finding)?,
-        ).await
+        )
+        .await
     }
 
     pub fn path(&self) -> &std::path::Path {
@@ -112,7 +127,15 @@ mod tests {
         let log_path = dir.path().join("timeline.jsonl");
         let logger = ActivityLog::new(log_path.clone()).await?;
 
-        logger.log(EventKind::Note, Actor::System, "Test event", None, serde_json::json!({"test": true})).await?;
+        logger
+            .log(
+                EventKind::Note,
+                Actor::System,
+                "Test event",
+                None,
+                serde_json::json!({"test": true}),
+            )
+            .await?;
 
         let content = tokio::fs::read_to_string(log_path).await?;
         let event: LogEvent = serde_json::from_str(&content)?;

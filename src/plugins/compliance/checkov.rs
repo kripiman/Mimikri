@@ -1,12 +1,14 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category, PLUGIN_CHECKOV, FINDING_CHECKOV_MISCONFIG};
+use crate::models::{
+    Category, Finding, Severity, TargetHost, FINDING_CHECKOV_MISCONFIG, PLUGIN_CHECKOV,
+};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
+use serde::Deserialize;
 use std::process::Stdio;
 use tokio::process::Command;
-use serde::Deserialize;
+use tracing::{info, warn};
 
 #[derive(Debug, Deserialize)]
 struct CheckovReport {
@@ -39,9 +41,7 @@ impl Default for CheckovScanner {
 impl CheckovScanner {
     pub fn new() -> Self {
         let path = detect_tool("checkov");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -51,8 +51,7 @@ impl ScannerPlugin for CheckovScanner {
         PLUGIN_CHECKOV
     }
 
-    
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -67,7 +66,9 @@ impl ScannerPlugin for CheckovScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -77,12 +78,11 @@ impl ScannerPlugin for CheckovScanner {
         Ok(crate::utils::check_tool_availability("checkov").await)
     }
 
-
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("CheckovScanner: scanning IaC for {}", target.host);
 
         let mut cmd = Command::new(&self.binary_path);
-        
+
         // If it's a directory, use -d, else -f
         let is_dir = std::path::Path::new(&target.host).is_dir();
         if is_dir {
@@ -91,63 +91,81 @@ impl ScannerPlugin for CheckovScanner {
             cmd.arg("-f").arg(&target.host);
         }
 
-        cmd.arg("--output").arg("json")
-           .arg("--quiet")
-           .stdin(Stdio::null())
-           .stdout(Stdio::piped())
-           .stderr(Stdio::null());
+        cmd.arg("--output")
+            .arg("json")
+            .arg("--quiet")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
 
-        let output = cmd.spawn()?.wait_with_output().await.context("Failed to wait for checkov")?;
+        let output = cmd
+            .spawn()?
+            .wait_with_output()
+            .await
+            .context("Failed to wait for checkov")?;
 
         let mut findings = Vec::new();
 
-        if output.status.success() || output.status.code() == Some(1) { // 1 means checks failed
+        if output.status.success() || output.status.code() == Some(1) {
+            // 1 means checks failed
             let content = String::from_utf8_lossy(&output.stdout);
-            
+
             // Checkov might output an array of reports if multiple frameworks are scanned
             if let Ok(reports) = serde_json::from_str::<Vec<CheckovReport>>(&content) {
                 for report in reports {
                     for check in report.results.failed_checks {
-                        let severity = match check.severity.unwrap_or_default().to_uppercase().as_str() {
-                            "CRITICAL" => Severity::Critical,
-                            "HIGH" => Severity::High,
-                            "MEDIUM" => Severity::Medium,
-                            _ => Severity::Low,
-                        };
+                        let severity =
+                            match check.severity.unwrap_or_default().to_uppercase().as_str() {
+                                "CRITICAL" => Severity::Critical,
+                                "HIGH" => Severity::High,
+                                "MEDIUM" => Severity::Medium,
+                                _ => Severity::Low,
+                            };
                         findings.push(Finding::new(
                             FINDING_CHECKOV_MISCONFIG,
                             Category::Misconfiguration,
                             severity,
-                            &format!("Checkov: {} ({}) in {}", check.check_name, check.check_id, check.file_path),
+                            &format!(
+                                "Checkov: {} ({}) in {}",
+                                check.check_name, check.check_id, check.file_path
+                            ),
                             serde_json::json!({
                                 "check_id": check.check_id,
                                 "file_path": check.file_path
-                            })
+                            }),
                         ));
                     }
                 }
             } else if let Ok(report) = serde_json::from_str::<CheckovReport>(&content) {
-                 for check in report.results.failed_checks {
-                    let severity = match check.severity.unwrap_or_default().to_uppercase().as_str() {
-                            "CRITICAL" => Severity::Critical,
-                            "HIGH" => Severity::High,
-                            "MEDIUM" => Severity::Medium,
-                            _ => Severity::Low,
-                        };
-                        findings.push(Finding::new(
-                            FINDING_CHECKOV_MISCONFIG,
-                            Category::Misconfiguration,
-                            severity,
-                            &format!("Checkov: {} ({}) in {}", check.check_name, check.check_id, check.file_path),
-                            serde_json::json!({
-                                "check_id": check.check_id,
-                                "file_path": check.file_path
-                            })
-                        ));
-                 }
+                for check in report.results.failed_checks {
+                    let severity = match check.severity.unwrap_or_default().to_uppercase().as_str()
+                    {
+                        "CRITICAL" => Severity::Critical,
+                        "HIGH" => Severity::High,
+                        "MEDIUM" => Severity::Medium,
+                        _ => Severity::Low,
+                    };
+                    findings.push(Finding::new(
+                        FINDING_CHECKOV_MISCONFIG,
+                        Category::Misconfiguration,
+                        severity,
+                        &format!(
+                            "Checkov: {} ({}) in {}",
+                            check.check_name, check.check_id, check.file_path
+                        ),
+                        serde_json::json!({
+                            "check_id": check.check_id,
+                            "file_path": check.file_path
+                        }),
+                    ));
+                }
             }
         } else {
-            warn!("Checkov failed on {} with status {:?}", target.host, output.status.code());
+            warn!(
+                "Checkov failed on {} with status {:?}",
+                target.host,
+                output.status.code()
+            );
         }
 
         Ok(findings)

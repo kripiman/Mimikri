@@ -96,7 +96,10 @@ impl StochasticEvasionPolicy {
             } else {
                 beta.fetch_add(1, Ordering::Relaxed);
             }
-            debug!("🛡️ WAF-EVASION: Policy update for {:?}: success={}", strategy, success);
+            debug!(
+                "🛡️ WAF-EVASION: Policy update for {:?}: success={}",
+                strategy, success
+            );
         }
     }
 }

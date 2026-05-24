@@ -1,5 +1,5 @@
-pub mod pipeline;
 pub mod interaction;
+pub mod pipeline;
 
-pub use pipeline::ValidationPipeline;
 pub use interaction::OobInteractionManager;
+pub use pipeline::ValidationPipeline;

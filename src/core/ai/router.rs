@@ -1,19 +1,22 @@
-use std::sync::Arc;
-use tracing::info;
-use thiserror::Error;
-use std::hash::{Hash, Hasher};
-use std::time::Duration;
-use std::sync::atomic::Ordering;
-use moka::future::Cache;
-use siphasher::sip::SipHasher13;
-use once_cell::sync::Lazy;
-use anyhow::{Result, anyhow};
-use crate::models::{Finding, AIAnalysis, TargetHost};
-use crate::plugins::PluginMetadata;
-use crate::core::ai::traits::LlmClient;
 use super::compressor::ContextCompressor;
-use super::token_optimizer::{PROMPT_OPTIMIZER, OptimizationLevel};
-use super::types::{RouteLevel, LlmProviderKind, ProviderEntry, AdaptiveContext, CacheMetrics, Posture, CavemanLevel};
+use super::token_optimizer::{OptimizationLevel, PROMPT_OPTIMIZER};
+use super::types::{
+    AdaptiveContext, CacheMetrics, CavemanLevel, LlmProviderKind, Posture, ProviderEntry,
+    RouteLevel,
+};
+use crate::core::ai::traits::LlmClient;
+use crate::models::{AIAnalysis, Finding, TargetHost};
+use crate::plugins::PluginMetadata;
+use anyhow::{anyhow, Result};
+use moka::future::Cache;
+use once_cell::sync::Lazy;
+use siphasher::sip::SipHasher13;
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
+use thiserror::Error;
+use tracing::info;
 
 #[derive(Error, Debug)]
 pub enum RouterError {
@@ -34,7 +37,11 @@ impl RouterError {
             RouterError::Unauthorized
         } else if msg.contains("429") || msg.contains("rate limit") || msg.contains("too many") {
             RouterError::RateLimited
-        } else if msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("unreachable") {
+        } else if msg.contains("500")
+            || msg.contains("502")
+            || msg.contains("503")
+            || msg.contains("unreachable")
+        {
             RouterError::InternalError
         } else {
             RouterError::Generic(msg)
@@ -81,10 +88,20 @@ impl TieredAIRouter {
         self
     }
 
-    pub fn add_provider(&self, level: RouteLevel, kind: LlmProviderKind, priority: u8, client: Arc<dyn LlmClient>) {
+    pub fn add_provider(
+        &self,
+        level: RouteLevel,
+        kind: LlmProviderKind,
+        priority: u8,
+        client: Arc<dyn LlmClient>,
+    ) {
         self.providers.rcu(|old| {
             let mut map = old.as_ref().clone();
-            let entry = ProviderEntry { kind, priority, client: client.clone() };
+            let entry = ProviderEntry {
+                kind,
+                priority,
+                client: client.clone(),
+            };
             let level_providers = map.entry(level).or_default();
             level_providers.push(entry);
             level_providers.sort_by_key(|p| p.priority);
@@ -104,7 +121,7 @@ impl TieredAIRouter {
         target.ip.hash(&mut hasher);
         finding.core.id.hash(&mut hasher);
         finding.core.category.hash(&mut hasher);
-        
+
         format!("f:{:x}", hasher.finish())
     }
 
@@ -121,24 +138,33 @@ impl TieredAIRouter {
         };
 
         // Escalate for sensitive categories (Credentials, Exposed Assets)
-        if finding.core.category == crate::models::Category::CredentialLeak || finding.core.category == crate::models::Category::ExposedAsset {
+        if finding.core.category == crate::models::Category::CredentialLeak
+            || finding.core.category == crate::models::Category::ExposedAsset
+        {
             level = level.max(RouteLevel::Mid);
         }
 
         // Detect WAF/Security tech using ContextCompressor logic
         let target_ctx = ContextCompressor::compress_target(target);
         if let Some(tech) = target_ctx.get("tech").and_then(|t| t.as_array()) {
-            let waf_tech = ["cloudflare", "incapsula", "akamai", "f5", "barracuda", "sucuri"];
+            let waf_tech = [
+                "cloudflare",
+                "incapsula",
+                "akamai",
+                "f5",
+                "barracuda",
+                "sucuri",
+            ];
             for t in tech {
                 if let Some(name) = t.as_str() {
                     if waf_tech.iter().any(|&w| name.to_lowercase().contains(w)) {
-                         level = level.max(RouteLevel::Mid);
+                        level = level.max(RouteLevel::Mid);
                     }
                 }
             }
         }
 
-        // Source-aware findings prefer Local Code-Models (Tier 0) 
+        // Source-aware findings prefer Local Code-Models (Tier 0)
         if let Some(ref evidence) = finding.evidence.primary {
             if evidence.data.get("type").and_then(|v| v.as_str()) == Some("source_aware") {
                 return RouteLevel::Local;
@@ -148,17 +174,30 @@ impl TieredAIRouter {
         level
     }
 
-    pub async fn analyze(&self, finding: &Finding, target: &TargetHost, attack_context: Option<&str>) -> Result<AIAnalysis> {
+    pub async fn analyze(
+        &self,
+        finding: &Finding,
+        target: &TargetHost,
+        attack_context: Option<&str>,
+    ) -> Result<AIAnalysis> {
         let level = self.classify(finding, target);
         let caveman = if level == RouteLevel::Premium {
             super::types::CavemanLevel::WenyanUltra
         } else {
             super::types::CavemanLevel::default()
         };
-        self.analyze_with_level(finding, target, attack_context, level, caveman).await
+        self.analyze_with_level(finding, target, attack_context, level, caveman)
+            .await
     }
 
-    pub async fn analyze_with_level(&self, finding: &Finding, target: &TargetHost, attack_context: Option<&str>, target_level: RouteLevel, caveman: super::types::CavemanLevel) -> Result<AIAnalysis> {
+    pub async fn analyze_with_level(
+        &self,
+        finding: &Finding,
+        target: &TargetHost,
+        attack_context: Option<&str>,
+        target_level: RouteLevel,
+        caveman: super::types::CavemanLevel,
+    ) -> Result<AIAnalysis> {
         let cache_key = Self::calculate_finding_cache_key(finding, target);
         if let Some(cached) = self.analysis_cache.get(&cache_key) {
             self.metrics.hits.fetch_add(1, Ordering::Relaxed);
@@ -166,7 +205,7 @@ impl TieredAIRouter {
         }
 
         self.metrics.misses.fetch_add(1, Ordering::Relaxed);
-        
+
         for level_val in (target_level as i32)..=2 {
             let current_level = match level_val {
                 0 => RouteLevel::Local,
@@ -177,7 +216,15 @@ impl TieredAIRouter {
             let providers_map = self.providers.load();
             if let Some(providers) = providers_map.get(&current_level) {
                 // SKILL INJECTION BRIDGE (ENRICHED)
-                let effective_ctx = self.enrich_context_v15(finding, attack_context, current_level, Posture::Ghost, caveman).await;
+                let effective_ctx = self
+                    .enrich_context_v15(
+                        finding,
+                        attack_context,
+                        current_level,
+                        Posture::Ghost,
+                        caveman,
+                    )
+                    .await;
 
                 for entry in providers {
                     let config = crate::core::ai::traits::InferenceConfig {
@@ -190,19 +237,36 @@ impl TieredAIRouter {
                     match entry.client.analyze(config).await {
                         Ok(analysis) => {
                             match current_level {
-                                RouteLevel::Local => crate::utils::telemetry::METRIC_LOCAL_QWEN_TRIAGE.fetch_add(1, Ordering::Relaxed),
-                                RouteLevel::Mid => crate::utils::telemetry::METRIC_MID_LLM_CALLS.fetch_add(1, Ordering::Relaxed),
-                                RouteLevel::Premium => crate::utils::telemetry::METRIC_PREMIUM_LLM_CALLS.fetch_add(1, Ordering::Relaxed),
+                                RouteLevel::Local => {
+                                    crate::utils::telemetry::METRIC_LOCAL_QWEN_TRIAGE
+                                        .fetch_add(1, Ordering::Relaxed)
+                                }
+                                RouteLevel::Mid => crate::utils::telemetry::METRIC_MID_LLM_CALLS
+                                    .fetch_add(1, Ordering::Relaxed),
+                                RouteLevel::Premium => {
+                                    crate::utils::telemetry::METRIC_PREMIUM_LLM_CALLS
+                                        .fetch_add(1, Ordering::Relaxed)
+                                }
                             };
                             let mut analysis = analysis;
-                            analysis.model = format!("{} (Tiered: {:?}, Provider: {:?})", analysis.model, current_level, entry.kind);
-                            self.analysis_cache.insert(cache_key, analysis.clone()).await;
+                            analysis.model = format!(
+                                "{} (Tiered: {:?}, Provider: {:?})",
+                                analysis.model, current_level, entry.kind
+                            );
+                            self.analysis_cache
+                                .insert(cache_key, analysis.clone())
+                                .await;
                             return Ok(analysis);
                         }
                         Err(e) => {
                             let router_err = RouterError::from_anyhow(&e);
-                            tracing::warn!("TieredRouter: Provider {:?} in {:?} failed ({:?}). Trying next...", entry.kind, current_level, router_err);
-                            
+                            tracing::warn!(
+                                "TieredRouter: Provider {:?} in {:?} failed ({:?}). Trying next...",
+                                entry.kind,
+                                current_level,
+                                router_err
+                            );
+
                             if matches!(router_err, RouterError::Unauthorized) {
                                 tracing::error!("🚨 [TieredRouter] 401 Unauthorized detectado en {:?}. Activando Failover Bridge.", entry.kind);
                             }
@@ -211,8 +275,11 @@ impl TieredAIRouter {
                 }
             }
         }
-        
-        Err(anyhow!("All TieredAIRouter providers failed for {}", finding.core.id))
+
+        Err(anyhow!(
+            "All TieredAIRouter providers failed for {}",
+            finding.core.id
+        ))
     }
 
     pub async fn decide_action(
@@ -224,7 +291,7 @@ impl TieredAIRouter {
         adaptive_context: Option<&AdaptiveContext>,
     ) -> Result<Option<(String, serde_json::Value)>> {
         let target_level = self.classify(finding, target);
-        
+
         for level_val in (target_level as i32)..=2 {
             let current_level = match level_val {
                 0 => RouteLevel::Local,
@@ -234,11 +301,17 @@ impl TieredAIRouter {
             };
             let providers_map = self.providers.load();
             if let Some(providers) = providers_map.get(&current_level) {
-                let caveman = adaptive_context.map(|c| c.current_caveman).unwrap_or_default();
-                let posture = adaptive_context.map(|c| c.posture).unwrap_or(Posture::Ghost);
-                
+                let caveman = adaptive_context
+                    .map(|c| c.current_caveman)
+                    .unwrap_or_default();
+                let posture = adaptive_context
+                    .map(|c| c.posture)
+                    .unwrap_or(Posture::Ghost);
+
                 // SKILL INJECTION FOR DECISION (ENRICHED)
-                let effective_ctx = self.enrich_context_v15(finding, attack_context, current_level, posture, caveman).await;
+                let effective_ctx = self
+                    .enrich_context_v15(finding, attack_context, current_level, posture, caveman)
+                    .await;
 
                 for entry in providers {
                     let config = crate::core::ai::traits::DecisionConfig {
@@ -251,25 +324,32 @@ impl TieredAIRouter {
                         route_level: current_level,
                         caveman,
                     };
-                    
+
                     match entry.client.decide_action(config).await {
                         Ok(Some((action, context))) => {
                             match current_level {
-                                RouteLevel::Local => crate::utils::telemetry::METRIC_LOCAL_QWEN_TRIAGE.fetch_add(1, Ordering::Relaxed),
-                                RouteLevel::Mid => crate::utils::telemetry::METRIC_MID_LLM_CALLS.fetch_add(1, Ordering::Relaxed),
-                                RouteLevel::Premium => crate::utils::telemetry::METRIC_PREMIUM_LLM_CALLS.fetch_add(1, Ordering::Relaxed),
+                                RouteLevel::Local => {
+                                    crate::utils::telemetry::METRIC_LOCAL_QWEN_TRIAGE
+                                        .fetch_add(1, Ordering::Relaxed)
+                                }
+                                RouteLevel::Mid => crate::utils::telemetry::METRIC_MID_LLM_CALLS
+                                    .fetch_add(1, Ordering::Relaxed),
+                                RouteLevel::Premium => {
+                                    crate::utils::telemetry::METRIC_PREMIUM_LLM_CALLS
+                                        .fetch_add(1, Ordering::Relaxed)
+                                }
                             };
                             return Ok(Some((action, context)));
                         }
                         Ok(None) => continue,
                         Err(e) => {
-                           tracing::warn!("TieredRouter: Decision failed with provider {:?} in {:?}: {}. Trying next...", entry.kind, current_level, e);
+                            tracing::warn!("TieredRouter: Decision failed with provider {:?} in {:?}: {}. Trying next...", entry.kind, current_level, e);
                         }
                     }
                 }
             }
         }
-        
+
         Ok(None)
     }
 
@@ -283,7 +363,7 @@ impl TieredAIRouter {
         caveman: CavemanLevel,
     ) -> Option<String> {
         let mut effective_ctx = base_ctx.map(|s| s.to_string());
-        
+
         if let Some(ref sm) = self.skill_manager {
             let budget = match level {
                 RouteLevel::Local => 300,
@@ -292,8 +372,11 @@ impl TieredAIRouter {
             };
 
             // Hardening: Cache skill-injection to prevent redundant heavy optimization
-            let cache_key = format!("inj:{:?}:{:?}:{:?}:{}", level, posture, caveman, finding.core.id);
-            
+            let cache_key = format!(
+                "inj:{:?}:{:?}:{:?}:{}",
+                level, posture, caveman, finding.core.id
+            );
+
             let optimized_injection = if let Some(cached) = self.injection_cache.get(&cache_key) {
                 cached
             } else {
@@ -307,7 +390,9 @@ impl TieredAIRouter {
                         } else {
                             PROMPT_OPTIMIZER.optimize(&injection, OptimizationLevel::Full)
                         };
-                        self.injection_cache.insert(cache_key.clone(), optimized.clone()).await;
+                        self.injection_cache
+                            .insert(cache_key.clone(), optimized.clone())
+                            .await;
                         optimized
                     } else {
                         return effective_ctx;
@@ -317,14 +402,18 @@ impl TieredAIRouter {
                 }
             };
 
-            info!("🧠 [Router] Inyectando skills técnicos (Tier: {:?}, Cached: {}).", level, self.injection_cache.get(&cache_key).is_some());
-            
+            info!(
+                "🧠 [Router] Inyectando skills técnicos (Tier: {:?}, Cached: {}).",
+                level,
+                self.injection_cache.get(&cache_key).is_some()
+            );
+
             effective_ctx = Some(match effective_ctx {
                 Some(ctx) => format!("{}\n{}", optimized_injection, ctx),
                 None => optimized_injection,
             });
         }
-        
+
         effective_ctx
     }
 }

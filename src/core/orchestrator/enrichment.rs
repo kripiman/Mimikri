@@ -1,28 +1,29 @@
-use crate::models::{Finding, Severity, AIAnalysis, Category};
+use crate::models::{AIAnalysis, Category, Finding, Severity};
 
 pub fn enrich_findings(all_findings: &mut [Finding]) {
     for f in all_findings.iter_mut() {
         f.enrich_with_cvss();
         if f.enrichment.ai_analysis.is_none() {
-             if let Some(poc) = crate::utils::poc_generator::PocGenerator::generate_suggested_poc(f) {
-                 f.enrichment.ai_analysis = Some(AIAnalysis {
-                     summary: "Automated Mimikri enrichment".into(),
-                     impact: "Potential impact detected by scanner.".into(),
-                     stealth_notes: "Follow stealth policy for exploitation.".into(),
-                     risk_score: match f.core.severity {
-                         Severity::Critical => 90,
-                         Severity::High => 70,
-                         Severity::Medium => 50,
-                         _ => 20,
-                     },
-                     confidence: 0.7,
-                     mitre_attack: None,
-                     exploit_path: poc,
-                     model: "Mimikri-Engine".into(),
-                     poc: None,
-                     usage: Default::default(),
-                 });
-             }
+            if let Some(poc) = crate::utils::poc_generator::PocGenerator::generate_suggested_poc(f)
+            {
+                f.enrichment.ai_analysis = Some(AIAnalysis {
+                    summary: "Automated Mimikri enrichment".into(),
+                    impact: "Potential impact detected by scanner.".into(),
+                    stealth_notes: "Follow stealth policy for exploitation.".into(),
+                    risk_score: match f.core.severity {
+                        Severity::Critical => 90,
+                        Severity::High => 70,
+                        Severity::Medium => 50,
+                        _ => 20,
+                    },
+                    confidence: 0.7,
+                    mitre_attack: None,
+                    exploit_path: poc,
+                    model: "Mimikri-Engine".into(),
+                    poc: None,
+                    usage: Default::default(),
+                });
+            }
         }
     }
 }

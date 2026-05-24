@@ -1,10 +1,10 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category, constants};
 use crate::core::capability_layer::ScanLayer;
-use async_trait::async_trait;
+use crate::models::{constants, Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use anyhow::Result;
-use tracing::info;
+use async_trait::async_trait;
 use std::time::Duration;
+use tracing::info;
 
 pub struct SecretValidator {
     client: reqwest::Client,
@@ -29,7 +29,9 @@ impl SecretValidator {
 
 #[async_trait]
 impl ScannerPlugin for SecretValidator {
-    fn name(&self) -> &'static str { constants::PLUGIN_SECRET_VALIDATOR }
+    fn name(&self) -> &'static str {
+        constants::PLUGIN_SECRET_VALIDATOR
+    }
 
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
@@ -44,8 +46,12 @@ impl ScannerPlugin for SecretValidator {
         }
     }
 
-    async fn check_dependencies(&self) -> Result<bool> { Ok(true) }
-    fn capabilities(&self) -> Vec<Capability> { vec![Capability::VulnerabilityScanning] }
+    async fn check_dependencies(&self) -> Result<bool> {
+        Ok(true)
+    }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![Capability::VulnerabilityScanning]
+    }
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         let secret = target.extra_data.get("secret").and_then(|v| v.as_str());
@@ -53,24 +59,29 @@ impl ScannerPlugin for SecretValidator {
             return Ok(Vec::new());
         }
         let secret = secret.unwrap();
-        
-        info!("🛡️ SECRET-VALIDATOR: Validating exposed secret: {}...", &secret[..std::cmp::min(secret.len(), 8)]);
-        
+
+        info!(
+            "🛡️ SECRET-VALIDATOR: Validating exposed secret: {}...",
+            &secret[..std::cmp::min(secret.len(), 8)]
+        );
+
         let mut findings = Vec::new();
-        
+
         // Example: Test for AWS Key
         if secret.starts_with("AKIA") {
             // Test logic here
         }
-        
+
         // Example: Test for GitHub Token
         if secret.starts_with("ghp_") {
-            let resp = self.client.get("https://api.github.com/user")
+            let resp = self
+                .client
+                .get("https://api.github.com/user")
                 .header("Authorization", format!("token {}", secret))
                 .header("User-Agent", "OsintUltimate")
                 .send()
                 .await;
-                
+
             if let Ok(r) = resp {
                 if r.status().is_success() {
                     let body: serde_json::Value = r.json().await.unwrap_or_default();
@@ -84,7 +95,7 @@ impl ScannerPlugin for SecretValidator {
                             "status": "live",
                             "user": body.get("login").and_then(|v| v.as_str()).unwrap_or("unknown"),
                             "user_id": body.get("id").and_then(|v| v.as_u64()).unwrap_or(0)
-                        })
+                        }),
                     ));
                 }
             }

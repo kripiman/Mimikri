@@ -13,8 +13,8 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use super::super::state::{DashboardState, ValidatedOperator};
 use super::super::models::DashboardStats;
+use super::super::state::{DashboardState, ValidatedOperator};
 use super::get_current_stats;
 
 pub async fn findings_stream(
@@ -60,9 +60,7 @@ pub async fn get_stats_handler(
     Json(get_current_stats(&state))
 }
 
-pub async fn get_metrics(
-    _auth: ValidatedOperator,
-) -> Json<serde_json::Value> {
+pub async fn get_metrics(_auth: ValidatedOperator) -> Json<serde_json::Value> {
     use crate::utils::telemetry::*;
     use std::sync::atomic::Ordering;
 
@@ -76,9 +74,7 @@ pub async fn get_metrics(
     }))
 }
 
-pub async fn get_roi_rankings(
-    _auth: ValidatedOperator,
-) -> Json<Vec<(String, f64)>> {
+pub async fn get_roi_rankings(_auth: ValidatedOperator) -> Json<Vec<(String, f64)>> {
     use crate::core::selection::ProgramAnalyzer;
     let analyzer = ProgramAnalyzer::new();
 

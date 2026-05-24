@@ -1,12 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category, TargetType, PLUGIN_CRLF};
+use crate::models::{Category, Finding, Severity, TargetHost, TargetType, PLUGIN_CRLF};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
-
+use tracing::info;
 
 pub struct CRLFScanner {
     binary_path: String,
@@ -21,9 +20,7 @@ impl Default for CRLFScanner {
 impl CRLFScanner {
     pub fn new() -> Self {
         let path = detect_tool("crlfuzz");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -48,7 +45,9 @@ impl ScannerPlugin for CRLFScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -70,11 +69,12 @@ impl ScannerPlugin for CRLFScanner {
         };
 
         let mut cmd = Command::new(&self.binary_path);
-        cmd.arg("-u").arg(&url)
-           .arg("-s") // silent
-           .stdin(Stdio::null())
-           .stdout(Stdio::piped())
-           .stderr(Stdio::null());
+        cmd.arg("-u")
+            .arg(&url)
+            .arg("-s") // silent
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
 
         let output = cmd.output().await.context("Failed to execute crlfuzz")?;
 
@@ -83,8 +83,10 @@ impl ScannerPlugin for CRLFScanner {
         // CRLFuzz outputs vulnerable URLs to stdout if found.
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
-            if line.trim().is_empty() { continue; }
-            
+            if line.trim().is_empty() {
+                continue;
+            }
+
             findings.push(Finding::new(
                 crate::models::FINDING_CRLF_INJECTION,
                 Category::Vulnerability,

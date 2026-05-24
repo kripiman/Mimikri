@@ -1,11 +1,11 @@
-use crate::plugins::{DiscoveryPlugin, Capability, DiscoveryResult};
 use crate::models::TargetHost;
+use crate::plugins::{Capability, DiscoveryPlugin, DiscoveryResult};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::info;
 pub struct UncoverScanner {
     binary_path: String,
 }
@@ -18,9 +18,7 @@ impl Default for UncoverScanner {
 impl UncoverScanner {
     pub fn new() -> Self {
         let path = detect_tool("uncover");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 #[async_trait]
@@ -28,7 +26,7 @@ impl DiscoveryPlugin for UncoverScanner {
     fn name(&self) -> &'static str {
         crate::models::PLUGIN_UNCOVER
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -43,7 +41,9 @@ impl DiscoveryPlugin for UncoverScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -52,7 +52,10 @@ impl DiscoveryPlugin for UncoverScanner {
         Ok(crate::utils::check_tool_availability("uncover").await)
     }
     async fn discover(&self, target: &TargetHost) -> Result<Vec<DiscoveryResult>> {
-        info!("UncoverScanner: searching OSINT engines for {}", target.host);
+        info!(
+            "UncoverScanner: searching OSINT engines for {}",
+            target.host
+        );
         // uncover -q <target> -e shodan,censys,fofa -silent
         let child = Command::new(&self.binary_path)
             .arg("-q")
@@ -65,13 +68,19 @@ impl DiscoveryPlugin for UncoverScanner {
             .stderr(Stdio::null())
             .spawn()
             .context("Failed to spawn uncover")?;
-        let output = child.wait_with_output().await.context("Failed to wait for uncover")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed to wait for uncover")?;
         let mut discovered = Vec::new();
         let content = String::from_utf8_lossy(&output.stdout);
         for line in content.lines() {
             let host = line.trim().to_string();
             if !host.is_empty() {
-                discovered.push(DiscoveryResult { host, metadata: serde_json::json!({}) });
+                discovered.push(DiscoveryResult {
+                    host,
+                    metadata: serde_json::json!({}),
+                });
             }
         }
         Ok(discovered)

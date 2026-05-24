@@ -1,37 +1,37 @@
+use anyhow::Result;
+use mimikri::core::approval_gate::ApprovalGate;
+use mimikri::core::capability_layer::ScanLayerPolicy;
+use mimikri::core::orchestrator::dispatch::dispatch_scan;
 use mimikri::models::{TargetHost, TargetStatus, TargetType};
 use mimikri::plugins::get_all_scanners;
-use mimikri::core::orchestrator::dispatch::dispatch_scan;
-use mimikri::core::capability_layer::ScanLayerPolicy;
-use mimikri::core::approval_gate::ApprovalGate;
-use mimikri::utils::memory_monitor::MemoryMonitor;
 use mimikri::plugins::GlobalConfig;
 use mimikri::utils::executor::GhostMode;
-use std::sync::Arc;
+use mimikri::utils::memory_monitor::MemoryMonitor;
 use std::fs;
-use anyhow::Result;
+use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     println!("🚀 Starting REAL Golden Scan Baseline Capture (V15 Architecture)...");
-    
+
     // 1. Setup Environment Dependencies (Explicit GhostMode for baseline)
     let config = GlobalConfig::<GhostMode>::new();
     let plugins = Arc::new(get_all_scanners(config.clone()));
-    
+
     // Using established presets from V15 core
-    let layer_policy = ScanLayerPolicy::preset_authorized_red_team(); 
-    let approval_gate = Arc::new(ApprovalGate::for_red_team()); 
-    
+    let layer_policy = ScanLayerPolicy::preset_authorized_red_team();
+    let approval_gate = Arc::new(ApprovalGate::for_red_team());
+
     let memory_monitor = Arc::new(MemoryMonitor::new(1024, 2048)); // 1GB/2GB limits
     let memory_semaphore = Arc::new(Semaphore::new(1024)); // 1024 permits
-    
+
     // 2. Define Controlled Targets (matches docker-compose.test.yml)
     let target_hosts = vec![
         "127.0.0.1:8081".to_string(), // DVWA
         "127.0.0.1:445".to_string(),  // Samba
     ];
-    
+
     let mut all_findings = Vec::new();
 
     // 3. Run Scans via dispatch_scan
@@ -71,20 +71,24 @@ async fn main() -> Result<()> {
             policy,
             strict_scope,
             approval_timeout_secs,
-        ).await;
+        )
+        .await;
 
         println!("📥 Captured {} findings from {}", findings.len(), host);
         all_findings.extend(findings);
     }
-    
-    println!("📊 Capture complete. Total findings: {}", all_findings.len());
-    
+
+    println!(
+        "📊 Capture complete. Total findings: {}",
+        all_findings.len()
+    );
+
     // 4. Persistence to tests/baselines/
     let json = serde_json::to_string_pretty(&all_findings)?;
     fs::create_dir_all("tests/baselines")?;
     let path = std::env::current_dir()?.join("tests/baselines/golden_baseline.json");
     fs::write(&path, json)?;
-    
+
     println!("✅ Golden Scan Baseline saved to tests/baselines/golden_baseline.json.");
     Ok(())
 }

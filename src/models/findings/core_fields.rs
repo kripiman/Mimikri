@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use super::classification::{Category, Severity};
 use super::evidence::ValidationMetadata;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoreFinding {

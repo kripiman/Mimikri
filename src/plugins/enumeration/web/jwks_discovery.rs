@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category, constants};
 use crate::core::capability_layer::ScanLayer;
-use async_trait::async_trait;
+use crate::models::{constants, Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use anyhow::Result;
-use tracing::info;
-use std::time::Duration;
+use async_trait::async_trait;
 use serde_json::Value;
+use std::time::Duration;
+use tracing::info;
 
 pub struct JwksDiscoveryScanner {
     client: reqwest::Client,
@@ -31,12 +31,15 @@ impl JwksDiscoveryScanner {
 
 #[async_trait]
 impl ScannerPlugin for JwksDiscoveryScanner {
-    fn name(&self) -> &'static str { constants::PLUGIN_JWKS_DISCOVERY }
+    fn name(&self) -> &'static str {
+        constants::PLUGIN_JWKS_DISCOVERY
+    }
 
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: "JWKS Discovery".to_string(),
-            description: "Discovers JSON Web Key Sets (JWKS) endpoints for JWT security analysis.".to_string(),
+            description: "Discovers JSON Web Key Sets (JWKS) endpoints for JWT security analysis."
+                .to_string(),
             target_type: TargetType::Web,
             risk_level: RiskLevel::Safe,
             layer: ScanLayer::Scanning,
@@ -47,8 +50,12 @@ impl ScannerPlugin for JwksDiscoveryScanner {
         }
     }
 
-    async fn check_dependencies(&self) -> Result<bool> { Ok(true) }
-    fn capabilities(&self) -> Vec<Capability> { vec![Capability::ApiSecurity] }
+    async fn check_dependencies(&self) -> Result<bool> {
+        Ok(true)
+    }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![Capability::ApiSecurity]
+    }
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("🔍 JWKS: Scanning common endpoints for {}", target.host);
@@ -63,7 +70,7 @@ impl ScannerPlugin for JwksDiscoveryScanner {
             "/jwks.json",
             "/openid/v1/jwks",
             "/keys",
-            "/.well-known/openid-configuration"
+            "/.well-known/openid-configuration",
         ];
 
         let mut findings = Vec::new();
@@ -76,13 +83,18 @@ impl ScannerPlugin for JwksDiscoveryScanner {
                     if text.contains("\"keys\"") || text.contains("jwks_uri") {
                         let mut final_url = url.clone();
                         let mut is_config = false;
-                        
+
                         // [S2-4c] Fix: Extract actual jwks_uri from OpenID configuration
                         if path.contains("openid-configuration") {
                             is_config = true;
                             if let Ok(json) = serde_json::from_str::<Value>(&text) {
-                                if let Some(jwks_uri) = json.get("jwks_uri").and_then(|v| v.as_str()) {
-                                    info!("🔱 JWKS: Extracted jwks_uri {} from OpenID config", jwks_uri);
+                                if let Some(jwks_uri) =
+                                    json.get("jwks_uri").and_then(|v| v.as_str())
+                                {
+                                    info!(
+                                        "🔱 JWKS: Extracted jwks_uri {} from OpenID config",
+                                        jwks_uri
+                                    );
                                     final_url = jwks_uri.to_string();
                                 }
                             }
@@ -97,7 +109,7 @@ impl ScannerPlugin for JwksDiscoveryScanner {
                                 "url": final_url,
                                 "discovery_path": path,
                                 "type": if is_config { "openid-config" } else { "jwks" }
-                            })
+                            }),
                         ));
                     }
                 }

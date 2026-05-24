@@ -1,18 +1,21 @@
-use crate::models::{TargetHost, Finding, ValidationStatus};
 use crate::core::ai::TieredAIRouter;
 use crate::core::approval_gate::{ApprovalGate, User};
-use crate::models::findings::PocStrategy;
-use crate::utils::{executor::{StealthExecutor, ExecutorMode}, proxy::ProxyManager};
 use crate::core::policy::PolicyProvider;
+use crate::models::findings::PocStrategy;
+use crate::models::{Finding, TargetHost, ValidationStatus};
+use crate::utils::{
+    executor::{ExecutorMode, StealthExecutor},
+    proxy::ProxyManager,
+};
 use anyhow::Result;
 use std::sync::Arc;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 mod executor;
 mod generator;
+pub mod remote;
 #[cfg(feature = "sovereign")]
 mod sovereign;
-pub mod remote;
 
 pub struct PocValidator<M: ExecutorMode> {
     pub(crate) router: Arc<TieredAIRouter>,
@@ -25,18 +28,30 @@ pub struct PocValidator<M: ExecutorMode> {
 
 impl<M: ExecutorMode> PocValidator<M> {
     pub fn new(
-        router: Arc<TieredAIRouter>, 
-        approval_gate: Arc<ApprovalGate>, 
+        router: Arc<TieredAIRouter>,
+        approval_gate: Arc<ApprovalGate>,
         operator: User,
         executor: Arc<StealthExecutor<M>>,
         policy: Arc<dyn PolicyProvider>,
         proxy_manager: Option<Arc<ProxyManager>>,
     ) -> Self {
-        Self { router, approval_gate, operator, executor, policy, proxy_manager }
+        Self {
+            router,
+            approval_gate,
+            operator,
+            executor,
+            policy,
+            proxy_manager,
+        }
     }
 
     /// Intenta validar un hallazgo ejecutando un PoC generado por IA.
-    pub async fn validate(&self, finding: &mut Finding, target: &TargetHost, attack_context: Option<&str>) -> Result<bool> {
+    pub async fn validate(
+        &self,
+        finding: &mut Finding,
+        target: &TargetHost,
+        attack_context: Option<&str>,
+    ) -> Result<bool> {
         let poc = if let Some(ref analysis) = finding.enrichment.ai_analysis {
             if let Some(ref poc) = analysis.poc {
                 poc.clone()
@@ -53,7 +68,10 @@ impl<M: ExecutorMode> PocValidator<M> {
             }
         }
 
-        info!("🧪 SENTINEL: Iniciando validación de PoC para '{}' (Estrategia: {:?})", finding.core.title, poc.strategy);
+        info!(
+            "🧪 SENTINEL: Iniciando validación de PoC para '{}' (Estrategia: {:?})",
+            finding.core.title, poc.strategy
+        );
 
         // V14.1: Sovereign Mode Bifurcation
         #[cfg(feature = "sovereign")]
@@ -73,22 +91,23 @@ impl<M: ExecutorMode> PocValidator<M> {
         // 2. Gestionar aprobaciones para PoCs intrusivos
         if poc.is_intrusive {
             let action_desc = format!("PoC EXPLOIT: {} on {}", finding.core.title, target.host);
-            
+
             // Human Pivot: Generate a readable explanation for the approval request
             let human_context = format!(
                 "Sentinel propone ejecutar el siguiente PoC intrusivo:\n\nStrategy: {:?}\nPayload: {}\nExpected: {}\n\n¿Desea autorizar esta acción?",
                 poc.strategy, poc.payload, poc.expected_pattern
             );
 
-            let req_id = self.approval_gate.request_approval(
-                &action_desc,
-                95, 
-                &self.operator,
-                &human_context
-            ).await?;
+            let req_id = self
+                .approval_gate
+                .request_approval(&action_desc, 95, &self.operator, &human_context)
+                .await?;
 
             if let Some(id) = req_id {
-                info!("⏳ SENTINEL: PoC intrusivo requiere aprobación manual (ID: {})", id);
+                info!(
+                    "⏳ SENTINEL: PoC intrusivo requiere aprobación manual (ID: {})",
+                    id
+                );
                 if !self.approval_gate.wait_for_approval(&id, 600).await {
                     warn!("🚫 SENTINEL: Validación abortada por falta de aprobación.");
                     return Ok(false);
@@ -111,7 +130,10 @@ impl<M: ExecutorMode> PocValidator<M> {
             Ok(output) => {
                 let s = output.contains(&poc.expected_pattern);
                 if s {
-                    info!("🎯 SENTINEL: ¡PoC EXITOSO! Hallazgo verificado: {}", finding.core.title);
+                    info!(
+                        "🎯 SENTINEL: ¡PoC EXITOSO! Hallazgo verificado: {}",
+                        finding.core.title
+                    );
                     if let Some(ref mut ev) = finding.evidence.primary {
                         ev.verified = true;
                     }
@@ -134,13 +156,27 @@ impl<M: ExecutorMode> PocValidator<M> {
 
         // V15: Ejecutar el Pipeline Anti-Alucinación para refinamiento final
         if let Some(ref pm) = self.proxy_manager {
-            let _ = crate::core::verification::ValidationPipeline::validate(finding, target, pm.clone(), self.router.clone()).await;
-            
+            let _ = crate::core::verification::ValidationPipeline::validate(
+                finding,
+                target,
+                pm.clone(),
+                self.router.clone(),
+            )
+            .await;
+
             // V15.4: Active OOB Trigger
-            if finding.core.severity >= crate::models::Severity::High && finding.validation.as_ref().map(|v| v.status).unwrap_or(ValidationStatus::Unverified) != ValidationStatus::Verified
-                 && (finding.core.title.to_lowercase().contains("ssrf") || finding.core.title.to_lowercase().contains("blind")) {
-                     info!("🧬 SENTINEL [V15.4]: Active OOB requested. Triggering proactive re-run...");
-                 }
+            if finding.core.severity >= crate::models::Severity::High
+                && finding
+                    .validation
+                    .as_ref()
+                    .map(|v| v.status)
+                    .unwrap_or(ValidationStatus::Unverified)
+                    != ValidationStatus::Verified
+                && (finding.core.title.to_lowercase().contains("ssrf")
+                    || finding.core.title.to_lowercase().contains("blind"))
+            {
+                info!("🧬 SENTINEL [V15.4]: Active OOB requested. Triggering proactive re-run...");
+            }
 
             // Actualizar el éxito basado en el veredicto del Pipeline
             if let Some(ref val) = finding.validation {
@@ -159,11 +195,16 @@ impl<M: ExecutorMode> PocValidator<M> {
 
     /// Real async call to nuclei engine through StealthExecutor.
     async fn execute_nuclei(&self, template_path: &str, target: &TargetHost) -> Result<String> {
-        info!("🧬 SENTINEL: Ejecutando Nuclei con plantilla '{}' sobre {}", template_path, target.host);
-        
+        info!(
+            "🧬 SENTINEL: Ejecutando Nuclei con plantilla '{}' sobre {}",
+            template_path, target.host
+        );
+
         let args = vec![
-            "-t".to_string(), template_path.to_string(),
-            "-u".to_string(), target.host.clone(),
+            "-t".to_string(),
+            template_path.to_string(),
+            "-u".to_string(),
+            target.host.clone(),
             "-no-color".to_string(),
             "-silent".to_string(),
         ];

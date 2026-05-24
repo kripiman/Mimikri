@@ -1,13 +1,13 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Category, Severity};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
-use tokio::sync::mpsc::Sender;
 use std::sync::Arc;
+use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
+use tracing::info;
 
 pub struct TlsxScanner {
     binary_path: String,
@@ -72,7 +72,8 @@ impl ScannerPlugin for TlsxScanner {
         info!("TlsxScanner: launching scan for {}", addr);
 
         let child = tokio::process::Command::new(&self.binary_path)
-            .arg("-u").arg(addr)
+            .arg("-u")
+            .arg(addr)
             .arg("-san")
             .arg("-cn")
             .arg("-silent")
@@ -89,7 +90,7 @@ impl ScannerPlugin for TlsxScanner {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut findings = Vec::new();
-        
+
         let feedback_tx_lock = self.feedback_tx.read().await;
 
         for line in stdout.lines() {
@@ -103,10 +104,11 @@ impl ScannerPlugin for TlsxScanner {
                                     &format!("DISCOVERED_SUBDOMAIN_TLSX_{}", host),
                                     Category::Recon,
                                     Severity::Info,
-                                    &format!("New asset discovered via TLS SAN pivot: {}", host)
-                                ).build()
+                                    &format!("New asset discovered via TLS SAN pivot: {}", host),
+                                )
+                                .build(),
                             );
-                            
+
                             // Feedback Loop: Inject new target
                             if let Some(tx) = &*feedback_tx_lock {
                                 let new_target = TargetHost {
@@ -126,17 +128,22 @@ impl ScannerPlugin for TlsxScanner {
                                     scan_id: None,
                                     scope_id: String::new(),
                                 };
-                                
+
                                 // ARCH-11 Fix: Avoid blocking orchestrator/reactive loop deadlocks
                                 // We use a timeout to prevent infinite blocking if the channel is full.
                                 let tx_clone = tx.clone();
                                 let host_clone = host.to_string();
                                 tokio::spawn(async move {
-                                    match tokio::time::timeout(std::time::Duration::from_secs(5), tx_clone.send(new_target)).await {
-                                        Ok(Ok(_)) => {},
+                                    match tokio::time::timeout(
+                                        std::time::Duration::from_secs(5),
+                                        tx_clone.send(new_target),
+                                    )
+                                    .await
+                                    {
+                                        Ok(Ok(_)) => {}
                                         Ok(Err(_)) => {
                                             // Send error (channel closed)
-                                        },
+                                        }
                                         Err(_) => {
                                             tracing::warn!("⚠️ FEEDBACK DEADLOCK AVOIDED: Dropping recon target {} due to 5s timeout.", host_clone);
                                         }

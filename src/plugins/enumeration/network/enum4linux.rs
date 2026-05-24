@@ -1,12 +1,14 @@
-use crate::plugins::{PluginMetadata, ScannerPlugin, Capability, RiskLevel};
-use crate::models::{TargetHost, TargetType, Finding, findings::{Category, Severity}};
 use crate::core::capability_layer::ScanLayer;
+use crate::models::{
+    findings::{Category, Severity},
+    Finding, TargetHost, TargetType,
+};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
+use crate::utils::tool_detection::check_tool_availability;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
 use tokio::process::Command;
 use tracing::{info, warn};
-use crate::utils::tool_detection::check_tool_availability;
-
 
 pub struct Enum4LinuxScanner;
 
@@ -31,13 +33,18 @@ impl ScannerPlugin for Enum4LinuxScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: "Enum4Linux-NG SMB Enumeration".to_string(),
-            description: "Performs Active Directory/Windows SMB enumeration via enum4linux-ng".to_string(),
+            description: "Performs Active Directory/Windows SMB enumeration via enum4linux-ng"
+                .to_string(),
             target_type: TargetType::ActiveDirectory,
             risk_level: RiskLevel::Medium,
             layer: ScanLayer::Scanning,
             category: "ActiveDirectory".to_string(),
             expected_duration: std::time::Duration::from_secs(600),
-            capabilities: vec![Capability::ActiveDirectory, Capability::ServiceDiscovery, Capability::InformationGathering],
+            capabilities: vec![
+                Capability::ActiveDirectory,
+                Capability::ServiceDiscovery,
+                Capability::InformationGathering,
+            ],
             cost: 3,
             mitre_attacks: vec![
                 "T1087".to_string(), // Account Discovery
@@ -47,7 +54,9 @@ impl ScannerPlugin for Enum4LinuxScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("recon".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -61,16 +70,17 @@ impl ScannerPlugin for Enum4LinuxScanner {
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         // Trigger: AD/Windows target or port 139/445 open
         let has_smb_port = target.findings.iter().any(|f| {
-            f.category == Category::NetworkPort 
-            && f.evidence.primary.as_ref().is_some_and(|ev| {
-                let port = ev.data.get("port").and_then(|p| p.as_u64());
-                port == Some(139) || port == Some(445)
-            })
+            f.category == Category::NetworkPort
+                && f.evidence.primary.as_ref().is_some_and(|ev| {
+                    let port = ev.data.get("port").and_then(|p| p.as_u64());
+                    port == Some(139) || port == Some(445)
+                })
         });
 
-        if target.target_type != TargetType::ActiveDirectory 
-            && target.target_type != TargetType::Windows 
-            && !has_smb_port {
+        if target.target_type != TargetType::ActiveDirectory
+            && target.target_type != TargetType::Windows
+            && !has_smb_port
+        {
             return Ok(vec![]);
         }
 
@@ -82,14 +92,18 @@ impl ScannerPlugin for Enum4LinuxScanner {
 
         let output = Command::new("enum4linux-ng")
             .arg("-A")
-            .arg("-oJ").arg(&json_path)
+            .arg("-oJ")
+            .arg(&json_path)
             .arg(&addr)
             .output()
             .await
             .context("Failed to execute enum4linux-ng")?;
 
         if !output.status.success() {
-            warn!("⚠️ [Enum4Linux-NG] Process exited with error: {}", String::from_utf8_lossy(&output.stderr));
+            warn!(
+                "⚠️ [Enum4Linux-NG] Process exited with error: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
 
         let mut findings = Vec::new();
@@ -109,7 +123,7 @@ impl ScannerPlugin for Enum4LinuxScanner {
                                 )
                                 .with_evidence(user.clone())
                                 .build()
-                                .with_mitre_attack(vec!["T1087".to_string()])
+                                .with_mitre_attack(vec!["T1087".to_string()]),
                             );
                         }
                     }
@@ -127,11 +141,11 @@ impl ScannerPlugin for Enum4LinuxScanner {
                             )
                             .with_evidence(share.clone())
                             .build()
-                            .with_mitre_attack(vec!["T1135".to_string()])
+                            .with_mitre_attack(vec!["T1135".to_string()]),
                         );
                     }
                 }
-                
+
                 // OS Info / Domain
                 if let Some(os_info) = data.get("os_info") {
                     findings.push(
@@ -142,7 +156,7 @@ impl ScannerPlugin for Enum4LinuxScanner {
                             "SMB OS Fingerprint Captured",
                         )
                         .with_evidence(os_info.clone())
-                        .build()
+                        .build(),
                     );
                 }
             }

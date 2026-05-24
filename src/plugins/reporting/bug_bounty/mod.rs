@@ -1,5 +1,5 @@
-mod score;
 mod helpers;
+mod score;
 
 #[cfg(test)]
 mod tests;
@@ -10,8 +10,7 @@ use std::fmt::Write;
 pub(crate) use score::triage_readiness_score;
 
 use helpers::{
-    severity_label, default_impact, default_remediation,
-    http_evidence_view, build_curl_from_raw,
+    build_curl_from_raw, default_impact, default_remediation, http_evidence_view, severity_label,
 };
 
 pub struct BugBountyReport {
@@ -21,8 +20,15 @@ pub struct BugBountyReport {
 
 /// Generates one report per finding that is Medium severity or above.
 pub fn generate_reports(target: &TargetHost) -> Vec<BugBountyReport> {
-    target.findings.iter()
-        .filter(|f| matches!(f.core.severity, Severity::Critical | Severity::High | Severity::Medium))
+    target
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.core.severity,
+                Severity::Critical | Severity::High | Severity::Medium
+            )
+        })
         .map(|f| build_report(target, f))
         .collect()
 }
@@ -34,23 +40,43 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
     let mut md = String::new();
 
     // Title
-    let title_prefix = if finding.enrichment.is_new { "[NEW] " } else { "" };
+    let title_prefix = if finding.enrichment.is_new {
+        "[NEW] "
+    } else {
+        ""
+    };
     let _ = writeln!(md, "# {}{}", title_prefix, finding.core.title);
     let _ = writeln!(md);
 
     // Metadata table
     let _ = writeln!(md, "| Field | Value |");
     let _ = writeln!(md, "|---|---|");
-    let _ = writeln!(md, "| **Discovery** | {} |", if finding.enrichment.is_new { "New ✨" } else { "Historical 🕰️" });
-    let _ = writeln!(md, "| **Severity** | {} |", severity_label(&finding.core.severity));
+    let _ = writeln!(
+        md,
+        "| **Discovery** | {} |",
+        if finding.enrichment.is_new {
+            "New ✨"
+        } else {
+            "Historical 🕰️"
+        }
+    );
+    let _ = writeln!(
+        md,
+        "| **Severity** | {} |",
+        severity_label(&finding.core.severity)
+    );
     // V14.7: Triage Readiness Score — rendered before CVSS to guide triage decision
     let readiness = triage_readiness_score(finding);
     let readiness_label = match readiness {
         70..=100 => "✅ Auto-Submit Ready",
-        40..=69  => "⚠️ Manual Review",
-        _        => "🔴 Incomplete — Do Not Submit",
+        40..=69 => "⚠️ Manual Review",
+        _ => "🔴 Incomplete — Do Not Submit",
     };
-    let _ = writeln!(md, "| **Triage Readiness** | {}/100 — {} |", readiness, readiness_label);
+    let _ = writeln!(
+        md,
+        "| **Triage Readiness** | {}/100 — {} |",
+        readiness, readiness_label
+    );
     if let Some(score) = finding.enrichment.cvss_score {
         let _ = writeln!(md, "| **CVSS Score** | {:.1} |", score);
     }
@@ -67,9 +93,21 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
         let _ = writeln!(md, "| **MITRE ATT&CK** | {} |", mitre.join(", "));
     }
     // Validation status
-    let validated = finding.evidence.primary.as_ref().map(|e| e.verified).unwrap_or(false);
-    let _ = writeln!(md, "| **Validation** | {} |",
-        if validated { "Verified ✅" } else { "Potential 🔍" });
+    let validated = finding
+        .evidence
+        .primary
+        .as_ref()
+        .map(|e| e.verified)
+        .unwrap_or(false);
+    let _ = writeln!(
+        md,
+        "| **Validation** | {} |",
+        if validated {
+            "Verified ✅"
+        } else {
+            "Potential 🔍"
+        }
+    );
 
     // Risk score (only if AI analysis present)
     if let Some(ai) = &finding.enrichment.ai_analysis {
@@ -77,8 +115,7 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
             let _ = writeln!(md, "| **Risk Score** | {}/100 |", ai.risk_score);
         }
         if ai.confidence > 0.0 {
-            let _ = writeln!(md, "| **AI Confidence** | {:.0}% |",
-                ai.confidence * 100.0);
+            let _ = writeln!(md, "| **AI Confidence** | {:.0}% |", ai.confidence * 100.0);
         }
     }
     let _ = writeln!(md);
@@ -103,14 +140,22 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
 
     let evidence_data = finding.evidence.primary.as_ref();
     let evidence = http_evidence_view(finding);
-    let curl_cmd = evidence.raw_request.and_then(|r| build_curl_from_raw(r, &target.host));
+    let curl_cmd = evidence
+        .raw_request
+        .and_then(|r| build_curl_from_raw(r, &target.host));
 
     if let Some(curl) = curl_cmd {
-        let _ = writeln!(md, "1. Execute the following `curl` command to reproduce the finding:");
+        let _ = writeln!(
+            md,
+            "1. Execute the following `curl` command to reproduce the finding:"
+        );
         let _ = writeln!(md, "   ```bash");
         let _ = writeln!(md, "   {}", curl);
         let _ = writeln!(md, "   ```");
-        let _ = writeln!(md, "2. Observe that the response contains the vulnerability pattern described above.");
+        let _ = writeln!(
+            md,
+            "2. Observe that the response contains the vulnerability pattern described above."
+        );
     } else {
         let matched_at = evidence_data
             .and_then(|e| e.data.get("matched_at"))
@@ -123,9 +168,16 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
 
         let _ = writeln!(md, "1. Navigate to or send a request to: `{}`", matched_at);
         if !template_id.is_empty() {
-            let _ = writeln!(md, "2. The vulnerability was detected via Nuclei template: `{}`", template_id);
+            let _ = writeln!(
+                md,
+                "2. The vulnerability was detected via Nuclei template: `{}`",
+                template_id
+            );
         }
-        let _ = writeln!(md, "3. Observe the response matches the vulnerability pattern described above.");
+        let _ = writeln!(
+            md,
+            "3. Observe the response matches the vulnerability pattern described above."
+        );
     }
     let _ = writeln!(md);
 
@@ -146,7 +198,11 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
     } else {
         let _ = writeln!(md, "```json");
         if let Some(e) = evidence_data {
-            let _ = writeln!(md, "{}", serde_json::to_string_pretty(&e.data).unwrap_or_default());
+            let _ = writeln!(
+                md,
+                "{}",
+                serde_json::to_string_pretty(&e.data).unwrap_or_default()
+            );
         }
         let _ = writeln!(md, "```");
     }
@@ -169,15 +225,21 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
     if let Some(ai) = &finding.enrichment.ai_analysis {
         let _ = writeln!(md, "{}", ai.exploit_path);
     } else {
-        let _ = writeln!(md, "Please refer to the PoC evidence to understand the exploit step-by-step.");
+        let _ = writeln!(
+            md,
+            "Please refer to the PoC evidence to understand the exploit step-by-step."
+        );
     }
     let _ = writeln!(md);
 
     // Operator-only note — strip before submitting to platform
     if let Some(ai) = &finding.enrichment.ai_analysis {
         if !ai.stealth_notes.is_empty() {
-            let _ = writeln!(md, "> **[Operator Note — remove before submission]** {}",
-                ai.stealth_notes);
+            let _ = writeln!(
+                md,
+                "> **[Operator Note — remove before submission]** {}",
+                ai.stealth_notes
+            );
             let _ = writeln!(md);
         }
     }
@@ -185,7 +247,11 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
     // Remediation
     let _ = writeln!(md, "## Remediation");
     let _ = writeln!(md);
-    let _ = writeln!(md, "{}", default_remediation(&finding.core.severity, &finding.core.category));
+    let _ = writeln!(
+        md,
+        "{}",
+        default_remediation(&finding.core.severity, &finding.core.category)
+    );
     let _ = writeln!(md);
 
     // References
@@ -198,21 +264,36 @@ fn build_report(target: &TargetHost, finding: &Finding) -> BugBountyReport {
         let _ = writeln!(md);
     }
 
-    BugBountyReport { filename, content: md }
+    BugBountyReport {
+        filename,
+        content: md,
+    }
 }
 
 /// Generates a consolidated report for a group of related findings (Attack Chain).
-pub fn generate_attack_chain_report(target: &TargetHost, findings: &[Finding]) -> Option<BugBountyReport> {
-    if findings.is_empty() { return None; }
-    
-    let filename = format!("{}_attack_chain_consolidated.md", target.host.replace('.', "_"));
+pub fn generate_attack_chain_report(
+    target: &TargetHost,
+    findings: &[Finding],
+) -> Option<BugBountyReport> {
+    if findings.is_empty() {
+        return None;
+    }
+
+    let filename = format!(
+        "{}_attack_chain_consolidated.md",
+        target.host.replace('.', "_")
+    );
     let mut md = String::new();
 
     let _ = writeln!(md, "# 🔗 Consolidated Attack Chain Report: {}", target.host);
     let _ = writeln!(md);
 
     let _ = writeln!(md, "## 0. Executive Summary");
-    let _ = writeln!(md, "This report documents a correlated sequence of vulnerabilities discovered on `{}`. ", target.host);
+    let _ = writeln!(
+        md,
+        "This report documents a correlated sequence of vulnerabilities discovered on `{}`. ",
+        target.host
+    );
     let _ = writeln!(md, "By chaining these findings, an attacker can achieve a significantly higher impact than through isolated exploitation.");
     let _ = writeln!(md);
 
@@ -222,7 +303,7 @@ pub fn generate_attack_chain_report(target: &TargetHost, findings: &[Finding]) -
     for (i, f) in findings.iter().enumerate() {
         let _ = writeln!(md, "    F{}[{}]", i, f.core.title);
         if i > 0 {
-            let _ = writeln!(md, "    F{} --> F{}", i-1, i);
+            let _ = writeln!(md, "    F{} --> F{}", i - 1, i);
         }
     }
     let _ = writeln!(md, "```");
@@ -232,7 +313,14 @@ pub fn generate_attack_chain_report(target: &TargetHost, findings: &[Finding]) -
     let _ = writeln!(md, "| Step | Finding | Severity | Category |");
     let _ = writeln!(md, "|---|---|---|---|");
     for (i, f) in findings.iter().enumerate() {
-        let _ = writeln!(md, "| {} | **{}** | {} | {:?} |", i+1, f.core.title, severity_label(&f.core.severity), f.core.category);
+        let _ = writeln!(
+            md,
+            "| {} | **{}** | {} | {:?} |",
+            i + 1,
+            f.core.title,
+            severity_label(&f.core.severity),
+            f.core.category
+        );
     }
     let _ = writeln!(md);
 
@@ -252,7 +340,7 @@ pub fn generate_attack_chain_report(target: &TargetHost, findings: &[Finding]) -
 
     let _ = writeln!(md, "## 4. Full Chain Walkthrough");
     for (i, f) in findings.iter().enumerate() {
-        let _ = writeln!(md, "### Phase {}: {}", i+1, f.core.title);
+        let _ = writeln!(md, "### Phase {}: {}", i + 1, f.core.title);
         let _ = writeln!(md, "{}", f.core.description);
         if let Some(ai) = &f.enrichment.ai_analysis {
             let _ = writeln!(md, "\n**Tactical Path**: {}", ai.exploit_path);
@@ -263,5 +351,8 @@ pub fn generate_attack_chain_report(target: &TargetHost, findings: &[Finding]) -
     let _ = writeln!(md, "## 5. Remediation");
     let _ = writeln!(md, "It is recommended to address all findings in this chain, starting with the root cause (Phase 1), as fixing downstream vulnerabilities may not prevent the initial access or information leak.");
 
-    Some(BugBountyReport { filename, content: md })
+    Some(BugBountyReport {
+        filename,
+        content: md,
+    })
 }

@@ -1,9 +1,9 @@
-use crate::models::TargetHost;
 use crate::core::sink::DataSink;
+use crate::models::TargetHost;
 use crossbeam::queue::ArrayQueue;
 use std::sync::Arc;
 use tokio::sync::Notify;
-use tracing::{info, error};
+use tracing::{error, info};
 
 const MAX_SINK_CAPACITY: usize = 200_000;
 
@@ -42,11 +42,13 @@ impl LockFreeResultSink {
             info!("🚀 v4-SINK: Background batcher task started.");
             while running.load(std::sync::atomic::Ordering::Relaxed) || !queue.is_empty() {
                 let mut batch = Vec::with_capacity(100);
-                
+
                 // Drain up to 100 items from the lock-free queue
                 while let Some(item) = queue.pop() {
                     batch.push(item);
-                    if batch.len() >= 100 { break; }
+                    if batch.len() >= 100 {
+                        break;
+                    }
                 }
 
                 if !batch.is_empty() {
@@ -61,7 +63,7 @@ impl LockFreeResultSink {
                     notify.notified().await;
                 }
             }
-            
+
             // Final cleanup
             let _ = inner_sink.close().await;
             info!("🛑 v4-SINK: Background batcher task stopped.");
@@ -77,7 +79,8 @@ impl LockFreeResultSink {
     }
 
     pub fn stop(&self) {
-        self.running.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         self.notify.notify_one(); // Wake up to finish last items
     }
 }
@@ -85,9 +88,9 @@ impl LockFreeResultSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
     use crate::core::sink::DataSink;
     use crate::models::TargetHost;
+    use anyhow::Result;
     use std::sync::Mutex;
     use std::time::Duration;
 
@@ -99,8 +102,12 @@ mod tests {
             self.0.lock().unwrap().push(target.host.clone());
             Ok(())
         }
-        async fn write_metadata(&mut self, _: &crate::models::ScanMetadata) -> Result<()> { Ok(()) }
-        async fn close(&mut self) -> Result<()> { Ok(()) }
+        async fn write_metadata(&mut self, _: &crate::models::ScanMetadata) -> Result<()> {
+            Ok(())
+        }
+        async fn close(&mut self) -> Result<()> {
+            Ok(())
+        }
     }
 
     #[tokio::test]
@@ -108,7 +115,7 @@ mod tests {
         let results = Arc::new(Mutex::new(Vec::new()));
         let sink = LockFreeResultSink::new();
         let mock = Box::new(MockSink(results.clone()));
-        
+
         sink.start_worker(mock);
 
         for i in 0..50 {
@@ -124,7 +131,11 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let final_results = results.lock().unwrap();
-        assert_eq!(final_results.len(), 50, "Sink should have processed all 50 items");
+        assert_eq!(
+            final_results.len(),
+            50,
+            "Sink should have processed all 50 items"
+        );
         assert!(final_results.contains(&"host-0".to_string()));
         assert!(final_results.contains(&"host-49".to_string()));
     }

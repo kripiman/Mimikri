@@ -1,16 +1,16 @@
+use super::super::state::{DashboardState, ValidatedOperator};
+use axum::http::StatusCode;
 /// handlers/targets.rs — Items 1, 2, 3, 8 from PLAN v3 6.B mapping table.
 /// pub struct TargetsQuery          (L20–L23)
 /// pub async fn get_targets         (L25–L46)
 /// pub async fn get_target_findings (L48–L66)
 /// pub async fn get_attack_graph    (L149–L183)
 use axum::{
-    extract::{State, Path, Query},
+    extract::{Path, Query, State},
     response::IntoResponse,
     Json,
 };
-use axum::http::StatusCode;
 use std::sync::Arc;
-use super::super::state::{DashboardState, ValidatedOperator};
 
 #[derive(serde::Deserialize)]
 pub struct TargetsQuery {
@@ -23,7 +23,9 @@ pub async fn get_targets(
     State(state): State<Arc<DashboardState>>,
 ) -> Json<Vec<serde_json::Value>> {
     let since = query.since.unwrap_or(0);
-    let targets: Vec<serde_json::Value> = state.targets.iter()
+    let targets: Vec<serde_json::Value> = state
+        .targets
+        .iter()
         .filter(|kv| kv.value().version > since)
         .map(|kv| {
             let t = kv.value();
@@ -36,7 +38,8 @@ pub async fn get_targets(
                 "version": t.version,
                 "new_findings": t.findings_since(since),
             })
-        }).collect();
+        })
+        .collect();
     Json(targets)
 }
 
@@ -52,7 +55,9 @@ pub async fn get_target_findings(
         None => return (StatusCode::NOT_FOUND, "Target not found").into_response(),
     };
 
-    let findings: Vec<crate::models::Finding> = target.findings.iter()
+    let findings: Vec<crate::models::Finding> = target
+        .findings
+        .iter()
         .filter(|f| f.version > since)
         .cloned()
         .collect();

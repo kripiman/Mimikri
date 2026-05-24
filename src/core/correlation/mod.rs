@@ -1,10 +1,10 @@
 use crate::models::Finding;
-use std::collections::{HashMap, HashSet};
-use serde::{Deserialize, Serialize};
-use tracing::{info, error};
-use uuid::Uuid;
-use sha2::{Sha256, Digest};
 use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use tracing::{error, info};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,7 +59,10 @@ impl AttackGraph {
     }
 
     pub fn add_edge(&mut self, source_id: &str, target_id: &str) {
-        self.edges.entry(source_id.to_string()).or_default().push(target_id.to_string());
+        self.edges
+            .entry(source_id.to_string())
+            .or_default()
+            .push(target_id.to_string());
     }
 }
 
@@ -105,14 +108,19 @@ impl CorrelationEngine {
     pub fn find_sid_by_username(&self, username: &str) -> Option<String> {
         let normalized_user = username.to_uppercase();
         for (id, node) in &self.graph.nodes {
-            if let Some(props) = node.evidence.primary.as_ref().and_then(|e| e.data.get("properties")) {
+            if let Some(props) = node
+                .evidence
+                .primary
+                .as_ref()
+                .and_then(|e| e.data.get("properties"))
+            {
                 if let Some(name) = props.get("name").and_then(|v| v.as_str()) {
                     let name_upper = name.to_uppercase();
-                    let is_match = name_upper == normalized_user || 
-                                   name_upper.starts_with(&format!("{}\\", normalized_user)) ||
-                                   name_upper.starts_with(&format!("{}@", normalized_user)) ||
-                                   name_upper.contains(&format!("\\{}", normalized_user));
-                    
+                    let is_match = name_upper == normalized_user
+                        || name_upper.starts_with(&format!("{}\\", normalized_user))
+                        || name_upper.starts_with(&format!("{}@", normalized_user))
+                        || name_upper.contains(&format!("\\{}", normalized_user));
+
                     if is_match {
                         return Some(id.replace("AD-NODE-", ""));
                     }
@@ -131,7 +139,10 @@ impl CorrelationEngine {
     }
 
     pub fn add_edge(&mut self, source_id: &str, target_id: &str) {
-        info!("🔱 SOVEREIGN: Manually adding AttackGraph edge: {} -> {}", source_id, target_id);
+        info!(
+            "🔱 SOVEREIGN: Manually adding AttackGraph edge: {} -> {}",
+            source_id, target_id
+        );
         self.graph.add_edge(source_id, target_id);
         self.is_dirty = true;
     }
@@ -142,21 +153,27 @@ impl CorrelationEngine {
 
     pub fn save(&self, path: &std::path::Path) -> anyhow::Result<()> {
         // REGRESSION-01 FIX: Robust path validation (blocks traversal, allows absolute paths)
-        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
             anyhow::bail!("V14.1 Security: Illegal path traversal (..) detected in state save.");
         }
 
         let json = serde_json::to_string(self)?;
-        
+
         // SEC-NEW-02 FIX: Require mandatory MCP_TOKEN for security
-        let secret = std::env::var("MCP_TOKEN")
-            .context("🚨 V14.1 SECURITY: MCP_TOKEN environment variable MUST be set for state persistence.")?;
-            
+        let secret = std::env::var("MCP_TOKEN").context(
+            "🚨 V14.1 SECURITY: MCP_TOKEN environment variable MUST be set for state persistence.",
+        )?;
+
         // SEC-NEW-01 FIX: Use robust MAC (Double-hash prevents length extension attacks)
         // MAC = SHA256(secret || SHA256(secret || data))
         let mut hasher = Sha256::new();
         hasher.update(secret.as_bytes());
-        hasher.update(Sha256::digest([secret.as_bytes(), json.as_bytes()].concat()));
+        hasher.update(Sha256::digest(
+            [secret.as_bytes(), json.as_bytes()].concat(),
+        ));
         let signature = hex::encode(hasher.finalize());
 
         let payload = serde_json::json!({
@@ -174,26 +191,35 @@ impl CorrelationEngine {
 
     pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
         // REGRESSION-01 FIX: Robust path validation (blocks traversal, allows absolute paths)
-        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
             anyhow::bail!("V14.1 Security: Illegal path traversal (..) detected in state load.");
         }
 
         let content = std::fs::read_to_string(path)?;
         let payload: serde_json::Value = serde_json::from_str(&content)?;
-        
-        let signature = payload["signature"].as_str().ok_or_else(|| anyhow::anyhow!("Missing signature"))?;
-        let data_json = payload["data"].as_str().ok_or_else(|| anyhow::anyhow!("Missing state data"))?;
+
+        let signature = payload["signature"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing signature"))?;
+        let data_json = payload["data"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Missing state data"))?;
 
         // SEC-NEW-02 FIX: Require mandatory MCP_TOKEN
         let secret = std::env::var("MCP_TOKEN")
             .context("🚨 V14.1 SECURITY: MCP_TOKEN environment variable MUST be set to load persistent state.")?;
-            
+
         // SEC-NEW-01 FIX: Verify robust MAC
         let mut hasher = Sha256::new();
         hasher.update(secret.as_bytes());
-        hasher.update(Sha256::digest([secret.as_bytes(), data_json.as_bytes()].concat()));
+        hasher.update(Sha256::digest(
+            [secret.as_bytes(), data_json.as_bytes()].concat(),
+        ));
         let expected = hex::encode(hasher.finalize());
-        
+
         if signature != expected {
             error!("🚨 V14.1 SECURITY: State poisoning detected! Signature verification failed for {}.", path.display());
             anyhow::bail!("Corrupted or tampered state file (MAC mismatch).");
@@ -204,11 +230,17 @@ impl CorrelationEngine {
     }
 
     pub fn ingest_outcome(&mut self, outcome: SubmissionOutcome) {
-        info!("🔱 ROI: Ingesting outcome for chain {}: {:?}", outcome.chain_id, outcome.outcome);
+        info!(
+            "🔱 ROI: Ingesting outcome for chain {}: {:?}",
+            outcome.chain_id, outcome.outcome
+        );
         // BUG-W31-13 FIX: Basic weight adjustment logic for Phase 4
         if let OutcomeType::Accepted = outcome.outcome {
-             info!("🔱 ROI: Adjusting weights for successful pattern: {}", outcome.pattern_signature);
-             // Logic to boost this pattern's priority in future scans would go here
+            info!(
+                "🔱 ROI: Adjusting weights for successful pattern: {}",
+                outcome.pattern_signature
+            );
+            // Logic to boost this pattern's priority in future scans would go here
         }
     }
 
@@ -238,8 +270,9 @@ impl CorrelationEngine {
         for path in paths {
             if let Some(last_node_id) = path.nodes.last() {
                 if let Some(last_node) = self.graph.nodes.get(last_node_id) {
-                    if last_node.core.severity == crate::models::Severity::Critical || 
-                       last_node.core.severity == crate::models::Severity::High {
+                    if last_node.core.severity == crate::models::Severity::Critical
+                        || last_node.core.severity == crate::models::Severity::High
+                    {
                         critical_paths.push(path);
                     }
                 }
@@ -253,14 +286,18 @@ impl CorrelationEngine {
 
     pub fn get_context_summary(&mut self, finding_id: &str) -> Option<String> {
         let paths = self.get_attack_paths();
-        let relevant_path = paths.iter().find(|p| p.nodes.contains(&finding_id.to_string()))?;
+        let relevant_path = paths
+            .iter()
+            .find(|p| p.nodes.contains(&finding_id.to_string()))?;
 
         let mut context_nodes = Vec::new();
         for node_id in &relevant_path.nodes {
             if let Some(node) = self.graph.nodes.get(node_id) {
                 context_nodes.push(format!("{:?}", node.core.category));
             }
-            if node_id == finding_id { break; }
+            if node_id == finding_id {
+                break;
+            }
         }
 
         Some(context_nodes.join(" -> "))

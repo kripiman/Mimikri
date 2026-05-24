@@ -1,11 +1,11 @@
-use crate::utils::{stealth_http::StealthClientBuilder, proxy::ProxyManager};
-use crate::models::{TargetHost, TargetStatus, TargetType};
 use crate::models::constants::*;
+use crate::models::{TargetHost, TargetStatus, TargetType};
+use crate::utils::{proxy::ProxyManager, stealth_http::StealthClientBuilder};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OobInteraction {
@@ -53,11 +53,11 @@ impl OobInteractionManager {
         // MOCK INTERFACE: En entornos reales, interactsh-client se usa via CLI
         // o via una API REST si el servidor lo soporta.
         // Aquí implementamos la lógica de polling via HTTP (asumiendo interactsh-server API)
-        
+
         let poll_url = if let Some(ref token) = self.token {
-             format!("https://{}/poll?id={}&token={}", self.server_url, id, token)
+            format!("https://{}/poll?id={}&token={}", self.server_url, id, token)
         } else {
-             format!("https://{}/poll?id={}", self.server_url, id)
+            format!("https://{}/poll?id={}", self.server_url, id)
         };
 
         // We use a dummy target for the stealth client builder to satisfy proxy requirements
@@ -80,7 +80,7 @@ impl OobInteractionManager {
         };
 
         let client = StealthClientBuilder::build(&dummy_target, &self.proxy_manager)?;
-        
+
         let res_val: Result<reqwest::Response, reqwest::Error> = client.get(&poll_url).send().await;
         match res_val {
             Ok(res) if res.status().is_success() => {
@@ -92,12 +92,19 @@ impl OobInteractionManager {
     }
 
     /// Verificación bloqueante con timeout
-    pub async fn wait_for_interaction(&self, id: &str, timeout_secs: u64) -> Result<Option<OobInteraction>> {
+    pub async fn wait_for_interaction(
+        &self,
+        id: &str,
+        timeout_secs: u64,
+    ) -> Result<Option<OobInteraction>> {
         let start = std::time::Instant::now();
         let interval = Duration::from_millis(OOB_DEFAULT_POLL_INTERVAL_MS);
-        
-        info!("⏳ [OOB] Iniciando polling para ID: {} (Timeout: {}s)", id, timeout_secs);
-        
+
+        info!(
+            "⏳ [OOB] Iniciando polling para ID: {} (Timeout: {}s)",
+            id, timeout_secs
+        );
+
         while start.elapsed().as_secs() < timeout_secs {
             match self.poll_hits(id).await {
                 Ok(hits) if !hits.is_empty() => {
@@ -111,8 +118,11 @@ impl OobInteractionManager {
             }
             sleep(interval).await;
         }
-        
-        info!("💤 [OOB] Timeout alcanzado para ID: {}. No se detectaron interacciones.", id);
+
+        info!(
+            "💤 [OOB] Timeout alcanzado para ID: {}. No se detectaron interacciones.",
+            id
+        );
         Ok(None)
     }
 }

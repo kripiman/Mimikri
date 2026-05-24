@@ -1,19 +1,23 @@
-use mimikri::core::reactive_engine::ReactiveEngine;
-use mimikri::models::{Finding, Category, Severity, TargetHost};
-use mimikri::models::constants::{PLUGIN_NETEXEC, FINDING_ATTACK_PATH};
-use mimikri::core::capability_layer::ScanLayerPolicy;
-use mimikri::core::approval_gate::ApprovalGate;
-use dashmap::DashSet;
-use mimikri::plugins::{ScannerPlugin, PluginMetadata, RiskLevel, TargetType, Capability, PluginStatus};
-use mimikri::core::capability_layer::ScanLayer;
 use anyhow::Result;
 use async_trait::async_trait;
+use dashmap::DashSet;
+use mimikri::core::approval_gate::ApprovalGate;
+use mimikri::core::capability_layer::ScanLayer;
+use mimikri::core::capability_layer::ScanLayerPolicy;
+use mimikri::core::reactive_engine::ReactiveEngine;
+use mimikri::models::constants::{FINDING_ATTACK_PATH, PLUGIN_NETEXEC};
+use mimikri::models::{Category, Finding, Severity, TargetHost};
+use mimikri::plugins::{
+    Capability, PluginMetadata, PluginStatus, RiskLevel, ScannerPlugin, TargetType,
+};
 
 pub struct MockPlugin;
 
 #[async_trait]
 impl ScannerPlugin for MockPlugin {
-    fn name(&self) -> &'static str { PLUGIN_NETEXEC }
+    fn name(&self) -> &'static str {
+        PLUGIN_NETEXEC
+    }
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: "Mock NetExec".to_string(),
@@ -37,7 +41,7 @@ impl ScannerPlugin for MockPlugin {
             Category::Exploitation,
             Severity::High,
             "Mock finding from chain",
-            serde_json::json!({"target": target.host})
+            serde_json::json!({"target": target.host}),
         )])
     }
     async fn poll_status(&self) -> Result<PluginStatus> {
@@ -55,13 +59,13 @@ impl ScannerPlugin for MockPlugin {
 #[tokio::test]
 async fn test_attack_path_triggers_netexec_with_depth() {
     let engine = ReactiveEngine::new();
-    
+
     // 1. Setup synthetic target and finding
     let target = TargetHost {
         host: "DC01.target.local".to_string(),
         ..Default::default()
     };
-    
+
     let finding = Finding::new(
         &format!("{}:domain_admin", FINDING_ATTACK_PATH),
         Category::Windows,
@@ -70,9 +74,9 @@ async fn test_attack_path_triggers_netexec_with_depth() {
         serde_json::json!({
             "host": "DC01.target.local",
             "path": ["USER", "GROUP", "COMPUTER"]
-        })
+        }),
     );
-    
+
     // 2. Setup dependencies
     let findings = vec![finding];
     let mock_plugin = Box::new(MockPlugin);
@@ -80,7 +84,7 @@ async fn test_attack_path_triggers_netexec_with_depth() {
     let layer_policy = ScanLayerPolicy::preset_authorized_red_team();
     let approval_gate = ApprovalGate::for_authorized_testing();
     let fired_chains = DashSet::new();
-    
+
     // 3. Evaluate
     let ctx = mimikri::core::reactive_engine::ReactiveContext {
         findings: &findings,
@@ -92,7 +96,7 @@ async fn test_attack_path_triggers_netexec_with_depth() {
         inventory: None,
     };
     let result = engine.evaluate(ctx).await;
-    
+
     // 4. Verify Depth
     assert!(!result.is_empty());
     assert_eq!(result[0].core.id, "MOCK_VULN");

@@ -1,6 +1,6 @@
+use super::manager::ProxyManager;
 use std::time::Duration;
 use tracing::warn;
-use super::manager::ProxyManager;
 
 impl ProxyManager {
     pub(crate) fn start_health_checker(&mut self) {
@@ -8,7 +8,7 @@ impl ProxyManager {
             h.abort();
         }
         let managed_exits = self.managed_exits.clone();
-        
+
         let handle = tokio::spawn(async move {
             loop {
                 let sleep_secs = {
@@ -21,18 +21,26 @@ impl ProxyManager {
                 for entry in managed_exits.iter() {
                     let ip = entry.key().clone();
                     let exit = entry.value();
-                    
+
                     let elapsed = exit.last_seen.elapsed().unwrap_or(Duration::from_secs(0));
-                    if elapsed.as_secs() > 43200 { 
-                         to_prune.push(ip);
-                         continue;
+                    if elapsed.as_secs() > 43200 {
+                        to_prune.push(ip);
+                        continue;
                     }
 
                     let addr_str = format!("{}:1080", ip);
-                    match tokio::time::timeout(Duration::from_secs(3), tokio::net::TcpStream::connect(&addr_str)).await {
+                    match tokio::time::timeout(
+                        Duration::from_secs(3),
+                        tokio::net::TcpStream::connect(&addr_str),
+                    )
+                    .await
+                    {
                         Ok(Ok(_)) => {}
                         _ => {
-                            warn!("🛡️ SUPERVISOR: Managed exit {} failed TCP health check. Pruning.", ip);
+                            warn!(
+                                "🛡️ SUPERVISOR: Managed exit {} failed TCP health check. Pruning.",
+                                ip
+                            );
                             to_prune.push(ip);
                         }
                     }

@@ -1,7 +1,7 @@
-use rand_distr::{LogNormal, Distribution};
+use rand_distr::{Distribution, LogNormal};
 use tokio::time::{sleep, Duration};
 use tracing::error;
- // V9 FIX (MEDIUM-002): std::sync::RwLock for brief RAM-only blacklist access
+// V9 FIX (MEDIUM-002): std::sync::RwLock for brief RAM-only blacklist access
 
 pub struct HumanJitter {
     min_delay_ms: f64, // Changed to float for LogNormal calc
@@ -41,7 +41,9 @@ const REALISTIC_USER_AGENTS: &[&str] = &[
 pub fn get_random_user_agent() -> &'static str {
     use rand::seq::SliceRandom;
     let mut rng = rand::thread_rng();
-    REALISTIC_USER_AGENTS.choose(&mut rng).unwrap_or(&REALISTIC_USER_AGENTS[0])
+    REALISTIC_USER_AGENTS
+        .choose(&mut rng)
+        .unwrap_or(&REALISTIC_USER_AGENTS[0])
 }
 
 /// QA-008 FIX: Check actual CAP_NET_RAW capability, not just euid == 0
@@ -74,26 +76,29 @@ pub fn check_cap_net_raw() -> bool {
 /// 2. setsid/process_group: Decouples from the parent's process tree signaling.
 /// 3. Resource Limits: Enforces virtual memory constraints to protect the 1GB RAM host.
 /// 4. V12 Enterprise: Global Proxy Enforcement (ALL_PROXY)
-pub fn stealth_command(binary: &str, pm: Option<&crate::utils::proxy::ProxyManager>) -> tokio::process::Command {
+pub fn stealth_command(
+    binary: &str,
+    pm: Option<&crate::utils::proxy::ProxyManager>,
+) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(binary);
-    
+
     cmd.env_clear()
-       .env("PATH", "/usr/local/bin:/usr/bin:/bin")
-       .env("HOME", "/tmp")
-       .kill_on_drop(true);
+        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("HOME", "/tmp")
+        .kill_on_drop(true);
 
     // V12 HARDENING: Global Proxy Enforcement
     // V14.1 Professional: Prefer live ProxyManager over static environment variable.
     if let Some(pm) = pm {
         if let Some(proxy_url) = pm.get_best_socks_url() {
             cmd.env("ALL_PROXY", proxy_url.clone())
-               .env("http_proxy", proxy_url.clone())
-               .env("https_proxy", proxy_url);
+                .env("http_proxy", proxy_url.clone())
+                .env("https_proxy", proxy_url);
         }
     } else if let Ok(proxy) = std::env::var("GLOBAL_SCAN_PROXY") {
         cmd.env("ALL_PROXY", proxy.clone())
-           .env("http_proxy", proxy.clone())
-           .env("https_proxy", proxy);
+            .env("http_proxy", proxy.clone())
+            .env("https_proxy", proxy);
     }
 
     #[cfg(unix)]
@@ -104,7 +109,7 @@ pub fn stealth_command(binary: &str, pm: Option<&crate::utils::proxy::ProxyManag
             cmd.pre_exec(|| {
                 // 1. New Session/PGID
                 libc::setsid();
-                
+
                 // 2. Memory Limits (Hard limit 512MB for any single tool)
                 // This prevents a single nmap/hydra from OOMing the 1GB VPS.
                 let mem_limit_val = 512 * 1024 * 1024; // 512 MB
@@ -113,7 +118,7 @@ pub fn stealth_command(binary: &str, pm: Option<&crate::utils::proxy::ProxyManag
                     rlim_max: mem_limit_val,
                 };
                 libc::setrlimit(libc::RLIMIT_AS, &mem_rlimit);
-                
+
                 // 3. CPU Time Limit (300s CPU time max to prevent runaway processes)
                 let cpu_rlimit = libc::rlimit {
                     rlim_cur: 300,
@@ -127,7 +132,7 @@ pub fn stealth_command(binary: &str, pm: Option<&crate::utils::proxy::ProxyManag
                     rlim_max: 64,
                 };
                 libc::setrlimit(libc::RLIMIT_NPROC, &nproc_rlimit);
-                
+
                 Ok(())
             });
         }
@@ -141,7 +146,10 @@ pub async fn kill_pgid(pid: u32) {
     {
         // V11 HARDENING (HIGH-003): Guard against killing pid 0, 1 or negative (which would kill all processes)
         if pid <= 1 {
-            error!("Refusing to kill PGID {} as it is a restricted system PID.", pid);
+            error!(
+                "Refusing to kill PGID {} as it is a restricted system PID.",
+                pid
+            );
             return;
         }
         // Sending signal to -pid sends it to the whole process group.
@@ -154,7 +162,9 @@ pub async fn kill_pgid(pid: u32) {
 pub fn kill_pgid_sync(pid: u32) {
     #[cfg(unix)]
     {
-        if pid <= 1 { return; }
+        if pid <= 1 {
+            return;
+        }
         unsafe {
             libc::kill(-(pid as i32), libc::SIGKILL);
         }
@@ -166,7 +176,9 @@ pub struct PgidKillGuard {
 }
 
 impl PgidKillGuard {
-    pub fn new(pgid: u32) -> Self { Self { pgid } }
+    pub fn new(pgid: u32) -> Self {
+        Self { pgid }
+    }
 }
 
 impl Drop for PgidKillGuard {

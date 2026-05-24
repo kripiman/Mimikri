@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category, PLUGIN_WAYBACK};
+use crate::models::{Category, Finding, Severity, TargetHost, PLUGIN_WAYBACK};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
-use tokio::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
+use tracing::info;
 pub struct WaybackScanner {
     wayback_path: String,
     gau_path: String,
@@ -53,10 +53,14 @@ impl ScannerPlugin for WaybackScanner {
         vec![Capability::HistoricalRecon, Capability::OsintDiscovery]
     }
     async fn check_dependencies(&self) -> Result<bool> {
-        Ok(crate::utils::check_tool_availability("waybackurls").await || crate::utils::check_tool_availability("gau").await)
+        Ok(crate::utils::check_tool_availability("waybackurls").await
+            || crate::utils::check_tool_availability("gau").await)
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("WaybackScanner: fetching historical URLs for {}", target.host);
+        info!(
+            "WaybackScanner: fetching historical URLs for {}",
+            target.host
+        );
         let mut findings = Vec::new();
         // Try gau first as it's often more comprehensive
         let binary = if crate::utils::check_tool_availability("gau").await {
@@ -83,7 +87,7 @@ impl ScannerPlugin for WaybackScanner {
                 serde_json::json!({
                     "count": urls.len(),
                     "first_10": urls.iter().take(10).collect::<Vec<_>>()
-                })
+                }),
             ));
         }
         Ok(findings)

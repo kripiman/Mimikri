@@ -1,13 +1,13 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use chrono::Utc;
 use dashmap::DashMap;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Semaphore};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use super::config::DecoyConfig;
-use super::models::{DecoyRecord, TripwireEvent, CloudflareDnsResponse};
+use super::models::{CloudflareDnsResponse, DecoyRecord, TripwireEvent};
 use crate::utils::proxy::ProxyManager;
 
 pub struct DecoyController {
@@ -24,7 +24,10 @@ pub struct DecoyController {
 impl DecoyController {
     /// Creates a new DecoyController. The `tripwire_rx` should be consumed
     /// by a background task that persists events to SQLite.
-    pub fn new(config: DecoyConfig, pm: Arc<crate::utils::proxy::ProxyManager>) -> Result<(Self, mpsc::Receiver<TripwireEvent>)> {
+    pub fn new(
+        config: DecoyConfig,
+        pm: Arc<crate::utils::proxy::ProxyManager>,
+    ) -> Result<(Self, mpsc::Receiver<TripwireEvent>)> {
         config.validate()?;
         let max_connections = config.max_listener_connections.clamp(1, 50);
         let (tx, rx) = mpsc::channel(32); // 32-slot buffer for backpressure
@@ -42,7 +45,9 @@ impl DecoyController {
     }
 
     fn get_client(&self) -> Result<reqwest::Client> {
-        let (_, client) = self.proxy_manager.get_client_fail_closed("api.cloudflare.com")?;
+        let (_, client) = self
+            .proxy_manager
+            .get_client_fail_closed("api.cloudflare.com")?;
         Ok(client)
     }
 
@@ -93,7 +98,11 @@ impl DecoyController {
             }
         }
 
-        info!("🍯 DECOY: {}/{} canaries active", deployed.len(), self.config.canary_subdomains.len());
+        info!(
+            "🍯 DECOY: {}/{} canaries active",
+            deployed.len(),
+            self.config.canary_subdomains.len()
+        );
         Ok(deployed)
     }
 
@@ -112,7 +121,8 @@ impl DecoyController {
             "proxied": false  // Direct A record, no CF proxy (we want raw connections)
         });
 
-        let response: CloudflareDnsResponse = self.get_client()?
+        let response: CloudflareDnsResponse = self
+            .get_client()?
             .post(&url)
             .headers(self.cf_headers())
             .json(&body)
@@ -127,11 +137,22 @@ impl DecoyController {
             if let Some(record) = response.result {
                 Ok(record.id)
             } else {
-                anyhow::bail!("Cloudflare returned success but no record data for {}", fqdn)
+                anyhow::bail!(
+                    "Cloudflare returned success but no record data for {}",
+                    fqdn
+                )
             }
         } else {
-            let errors: Vec<String> = response.errors.iter().map(|e| format!("[{}] {}", e.code, e.message)).collect();
-            anyhow::bail!("Cloudflare DNS creation failed for {}: {}", fqdn, errors.join(", "))
+            let errors: Vec<String> = response
+                .errors
+                .iter()
+                .map(|e| format!("[{}] {}", e.code, e.message))
+                .collect();
+            anyhow::bail!(
+                "Cloudflare DNS creation failed for {}: {}",
+                fqdn,
+                errors.join(", ")
+            )
         }
     }
 
@@ -143,7 +164,9 @@ impl DecoyController {
     pub async fn destroy_canaries(&self) -> Result<()> {
         info!("🍯 DECOY: Tearing down all canary records...");
 
-        let records: Vec<(String, DecoyRecord)> = self.active_decoys.iter()
+        let records: Vec<(String, DecoyRecord)> = self
+            .active_decoys
+            .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
 
@@ -166,7 +189,8 @@ impl DecoyController {
             self.config.cloudflare_zone_id, record_id
         );
 
-        let res = self.get_client()?
+        let res = self
+            .get_client()?
             .delete(&url)
             .headers(self.cf_headers())
             .send()
@@ -195,7 +219,10 @@ impl DecoyController {
                 );
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
-                warn!("🚨 TRIPWIRE: Event buffer full (backpressure). Event for {} dropped.", event.fqdn);
+                warn!(
+                    "🚨 TRIPWIRE: Event buffer full (backpressure). Event for {} dropped.",
+                    event.fqdn
+                );
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 error!("🚨 TRIPWIRE: Persistence channel closed. Events are being lost!");

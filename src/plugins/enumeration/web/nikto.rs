@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
 use std::process::Stdio;
-use tokio::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct NiktoScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for NiktoScanner {
 impl NiktoScanner {
     pub fn new() -> Self {
         let path = detect_tool("nikto");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -68,16 +66,21 @@ impl ScannerPlugin for NiktoScanner {
             format!("http://{}", target.host)
         };
 
-        // Nikto doesn't have a great JSON output by default in older versions, 
+        // Nikto doesn't have a great JSON output by default in older versions,
         // but we'll try to use -Format json which outputs to a file.
-        let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file for Nikto")?;
+        let temp_file =
+            tempfile::NamedTempFile::new().context("Failed to create temp file for Nikto")?;
         let temp_path = temp_file.path().to_string_lossy().to_string();
 
         let mut child = Command::new(&self.binary_path)
-            .arg("-h").arg(&url)
-            .arg("-Format").arg("json")
-            .arg("-o").arg(&temp_path)
-            .arg("-Tuning").arg("123457890") // All except DOS
+            .arg("-h")
+            .arg(&url)
+            .arg("-Format")
+            .arg("json")
+            .arg("-o")
+            .arg(&temp_path)
+            .arg("-Tuning")
+            .arg("123457890") // All except DOS
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -99,13 +102,13 @@ impl ScannerPlugin for NiktoScanner {
                     for v in vulns {
                         let msg = v["msg"].as_str().unwrap_or("Unknown vulnerability");
                         let id = v["id"].as_str().unwrap_or("NIKTO-GENERIC");
-                        
+
                         findings.push(Finding::new(
                             &format!("NIKTO-{}", id),
                             Category::Vulnerability,
                             Severity::Medium, // Nikto doesn't provide clear severity levels easily
                             msg,
-                            v.clone()
+                            v.clone(),
                         ));
                     }
                 }

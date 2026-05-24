@@ -12,27 +12,27 @@ pub enum ScanLayer {
     /// ✅ Seguro
     /// Ejemplos: crt.sh, OSINT, búsqueda en Google, logs públicos
     Passive = 0,
-    
+
     /// LAYER 1: Discovery - Ligero probing, bajo riesgo de detección
     /// ✅ Bajo riesgo
     /// Ejemplos: DNS quering, HTTP HEAD requests, port scanning (ligero)
     Discovery = 1,
-    
+
     /// LAYER 2: Scanning - Escaneo activo, detectable por anomalías
     /// ⚠️ Mediano riesgo
     /// Ejemplos: Nmap intensive, vulnerability scanning, fuzzing
     Scanning = 2,
-    
+
     /// LAYER 3: Verification - Verificación de vulnerabilidades
     /// ⚠️ Alto riesgo - Puede activar alertas
     /// Ejemplos: Intentos de exploit no-destructivos, PoC
     Verification = 3,
-    
+
     /// LAYER 4: Exploitation - Explotación activa, cambios en el sistema
     /// 🔴 Crítico - Alto riesgo de detección y daño
     /// Ejemplos: Reverse shells, injections, malware dropp​ing, persistence
     Exploitation = 4,
-    
+
     /// LAYER 5: PostExploitation - Post-explotación y movimiento lateral
     /// 🔴 Crítico - Impacto severo
     /// Ejemplos: Privilege escalation, data exfiltration, AD enumeration
@@ -66,11 +66,14 @@ impl ScanLayer {
             Self::PostExploitation => "Post-Exploitation - Severe impact",
         }
     }
-    
+
     pub fn requires_approval(&self) -> bool {
-        matches!(self, Self::Verification | Self::Exploitation | Self::PostExploitation)
+        matches!(
+            self,
+            Self::Verification | Self::Exploitation | Self::PostExploitation
+        )
     }
-    
+
     pub fn risk_score(&self) -> u8 {
         match self {
             Self::Passive => 0,
@@ -101,7 +104,7 @@ impl ScanLayerPolicy {
             require_approval_for_layer_5: false,
         }
     }
-    
+
     pub fn preset_discovery_only() -> Self {
         Self {
             max_layer: ScanLayer::Discovery,
@@ -110,7 +113,7 @@ impl ScanLayerPolicy {
             require_approval_for_layer_5: false,
         }
     }
-    
+
     pub fn preset_audit() -> Self {
         Self {
             max_layer: ScanLayer::Scanning,
@@ -119,7 +122,7 @@ impl ScanLayerPolicy {
             require_approval_for_layer_5: false,
         }
     }
-    
+
     pub fn preset_authorized_red_team() -> Self {
         Self {
             max_layer: ScanLayer::PostExploitation,
@@ -128,11 +131,11 @@ impl ScanLayerPolicy {
             require_approval_for_layer_5: true,
         }
     }
-    
+
     pub fn is_plugin_allowed(&self, plugin_layer: ScanLayer) -> bool {
         plugin_layer <= self.max_layer
     }
-    
+
     pub fn needs_approval(&self, plugin_layer: ScanLayer) -> bool {
         match plugin_layer {
             ScanLayer::Verification => self.require_approval_for_layer_3_plus,
@@ -146,14 +149,14 @@ impl ScanLayerPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_scan_layer_ordering() {
         assert!(ScanLayer::Passive < ScanLayer::Discovery);
         assert!(ScanLayer::Discovery < ScanLayer::Scanning);
         assert!(ScanLayer::PostExploitation > ScanLayer::Exploitation);
     }
-    
+
     #[test]
     fn test_approval_policy() {
         let policy = ScanLayerPolicy::preset_audit();

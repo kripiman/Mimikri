@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category, PLUGIN_KUBE_BENCH};
+use crate::models::{Category, Finding, Severity, TargetHost, PLUGIN_KUBE_BENCH};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
-use tokio::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
+use tracing::info;
 
 pub struct KubeBenchScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for KubeBenchScanner {
 impl KubeBenchScanner {
     pub fn new() -> Self {
         let path = detect_tool("kube-bench");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -61,7 +59,7 @@ impl ScannerPlugin for KubeBenchScanner {
 
     async fn scan(&self, _target: &TargetHost) -> Result<Vec<Finding>> {
         info!("KubeBenchScanner: starting Kubernetes CIS benchmark");
-        
+
         let mut findings = Vec::new();
         let output = Command::new(&self.binary_path)
             .arg("run")
@@ -88,9 +86,9 @@ impl ScannerPlugin for KubeBenchScanner {
                                 "total_fail": fail_count,
                                 "total_warn": results["Totals"]["total_warn"],
                                 "total_pass": results["Totals"]["total_pass"]
-                            })
+                            }),
                         ));
-                        
+
                         // Add specific failures if needed, but summary is usually enough for a quick overview.
                     }
                 }

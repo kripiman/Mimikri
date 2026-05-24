@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Result};
 use std::process::{ExitStatus, Stdio};
-use std::time::Duration;
-use tracing::{warn, info};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
+use tracing::{info, warn};
 
 /// ARCH-10: ExternalToolGuard now tracks a 'KillSwitch' to ensure no zombies
 /// even if the parent task is dropped or cancelled mid-execution.
@@ -16,7 +16,12 @@ pub struct ExternalToolGuard {
 }
 
 impl ExternalToolGuard {
-    pub fn new(tool_name: &str, args: &[&str], timeout: Duration, pm: Option<Arc<crate::utils::proxy::ProxyManager>>) -> Self {
+    pub fn new(
+        tool_name: &str,
+        args: &[&str],
+        timeout: Duration,
+        pm: Option<Arc<crate::utils::proxy::ProxyManager>>,
+    ) -> Self {
         Self {
             tool_name: tool_name.to_string(),
             args: args.iter().map(|s| s.to_string()).collect(),
@@ -27,16 +32,22 @@ impl ExternalToolGuard {
     }
 
     pub async fn run(&self) -> Result<ExitStatus> {
-        let mut cmd = crate::utils::common::stealth_command(&self.tool_name, self.proxy_manager.as_ref().map(|p| p.as_ref()));
+        let mut cmd = crate::utils::common::stealth_command(
+            &self.tool_name,
+            self.proxy_manager.as_ref().map(|p| p.as_ref()),
+        );
         cmd.args(&self.args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = cmd.spawn()
+        let mut child = cmd
+            .spawn()
             .map_err(|e| anyhow!("Failed to spawn {}: {}", self.tool_name, e))?;
-        
-        let child_id = child.id().ok_or_else(|| anyhow!("Failed to get child ID"))?;
-        
+
+        let child_id = child
+            .id()
+            .ok_or_else(|| anyhow!("Failed to get child ID"))?;
+
         // Register PID for emergency cleanup
         {
             let mut pid_guard = self.child_pid.lock().await;
@@ -67,7 +78,7 @@ impl ExternalToolGuard {
 // Ensure cleanup if dropped during async execution
 impl Drop for ExternalToolGuard {
     fn drop(&mut self) {
-        // RADICAL CLEANUP: If the guard is dropped and the PID is still set, 
+        // RADICAL CLEANUP: If the guard is dropped and the PID is still set,
         // it means the task was cancelled or panicked. We MUST spawn a cleanup.
         if let Ok(mut pid_guard) = self.child_pid.try_lock() {
             if let Some(pid) = pid_guard.take() {

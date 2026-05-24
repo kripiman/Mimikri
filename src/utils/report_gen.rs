@@ -1,10 +1,9 @@
-use crate::models::{ScanMetadata, TargetHost, Finding};
+use crate::models::{Finding, ScanMetadata, TargetHost};
 use anyhow::Result;
 use handlebars::Handlebars;
 use serde::Serialize;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::fs::File;
-
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Serialize, Default)]
 struct SummaryStats {
@@ -50,7 +49,7 @@ const HTML_TEMPLATE: &str = r#"
     header { margin-bottom: 40px; border-bottom: 2px solid #334155; padding-bottom: 24px; }
     h1 { font-size: 3rem; margin: 0; display: flex; align-items: center; gap: 16px; color: var(--accent); font-weight: 800; }
     .meta { font-size: 0.9375rem; color: var(--muted); margin-top: 12px; }
-    
+
     .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; margin-bottom: 48px; }
     .stat-card { background: var(--card-bg); padding: 24px; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); text-align: center; border: 1px solid #334155; transition: transform 0.2s; }
     .stat-card:hover { transform: translateY(-5px); }
@@ -71,7 +70,7 @@ const HTML_TEMPLATE: &str = r#"
     td { padding: 20px; background: var(--card-bg); vertical-align: top; }
     tr td:first-child { border-radius: 12px 0 0 12px; }
     tr td:last-child { border-radius: 0 12px 12px 0; }
-    
+
     .severity-badge { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; color: #020617; }
     .severity-Critical { background: var(--critical); color: white; }
     .severity-High { background: var(--high); }
@@ -87,7 +86,7 @@ const HTML_TEMPLATE: &str = r#"
     .finding-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
     .finding-description { font-size: 1rem; margin-bottom: 12px; color: #e2e8f0; }
     .finding-evidence { font-family: 'Fira Code', ui-monospace, monospace; font-size: 0.875rem; background: #020617; color: #38bdf8; padding: 16px; border-radius: 8px; margin-top: 12px; white-space: pre-wrap; word-break: break-all; border: 1px solid #1e293b; }
-    
+
     .tactical_path-box { background: rgba(74, 222, 128, 0.05); border-left: 4px solid var(--low); padding: 16px; margin-top: 16px; border-radius: 0 8px 8px 0; font-size: 0.9375rem; }
     .tactical_path-label { font-weight: 800; color: var(--low); font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px; display: block; }
 
@@ -175,7 +174,7 @@ const HTML_TEMPLATE: &str = r#"
                   {{/each}}
                 </div>
                 <div class="finding-description">{{core.description}}</div>
-                
+
                 {{#if enrichment.ai_analysis}}
                 <div class="ai-analysis">
                   <span class="ai-label">🤖 Sentinel Autonomous Reasoning ({{enrichment.ai_analysis.model}})</span>
@@ -224,7 +223,6 @@ const HTML_TEMPLATE: &str = r#"
 </html>
 "#;
 
-
 #[derive(Serialize)]
 struct FullReportVM<'a> {
     metadata: &'a ScanMetadata,
@@ -232,7 +230,6 @@ struct FullReportVM<'a> {
     targets: Vec<TargetVM>,
     mermaid_graph: String,
 }
-
 
 #[derive(Serialize)]
 struct TargetVM {
@@ -244,11 +241,13 @@ struct TargetVM {
     findings: Vec<Finding>,
 }
 
-
 pub async fn generate_report(jsonl_path: &str, output_path: &str) -> Result<()> {
     let out_path = std::path::Path::new(output_path);
-    if out_path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
-         anyhow::bail!("Invalid output filename: Traversal (..) detected");
+    if out_path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        anyhow::bail!("Invalid output filename: Traversal (..) detected");
     }
 
     let in_file = File::open(jsonl_path).await?;
@@ -259,16 +258,21 @@ pub async fn generate_report(jsonl_path: &str, output_path: &str) -> Result<()> 
     let mut targets = Vec::new();
 
     while let Some(line) = reader.next_line().await? {
-        if line.trim().is_empty() { continue; }
-        
+        if line.trim().is_empty() {
+            continue;
+        }
+
         let peek: serde_json::Value = serde_json::from_str(&line)?;
 
         if let Some(meta_val) = peek.get("metadata") {
             if let Ok(m) = serde_json::from_value(meta_val.clone()) {
                 metadata = m;
-                metadata.command_line = html_escape::encode_safe(&metadata.command_line).to_string();
+                metadata.command_line =
+                    html_escape::encode_safe(&metadata.command_line).to_string();
             } else {
-                tracing::warn!("Failed to parse metadata from JSONL, skipping invalid metadata line");
+                tracing::warn!(
+                    "Failed to parse metadata from JSONL, skipping invalid metadata line"
+                );
             }
         } else if let Ok(target) = serde_json::from_str::<TargetHost>(&line) {
             stats.total_targets += 1;
@@ -280,7 +284,7 @@ pub async fn generate_report(jsonl_path: &str, output_path: &str) -> Result<()> 
             let mut severity_str = "Info";
             let mut total_cvss = 0.0;
             let mut cvss_count = 0;
-            
+
             for f in target.findings.iter() {
                 stats.total_findings += 1;
                 if f.core.category == crate::models::Category::SCA {
@@ -291,11 +295,26 @@ pub async fn generate_report(jsonl_path: &str, output_path: &str) -> Result<()> 
                     cvss_count += 1;
                 }
                 let val = match f.core.severity {
-                    crate::models::Severity::Critical => { stats.critical_count += 1; 4 },
-                    crate::models::Severity::High => { stats.high_count += 1; 3 },
-                    crate::models::Severity::Medium => { stats.medium_count += 1; 2 },
-                    crate::models::Severity::Low => { stats.low_count += 1; 1 },
-                    crate::models::Severity::Info => { stats.info_count += 1; 0 },
+                    crate::models::Severity::Critical => {
+                        stats.critical_count += 1;
+                        4
+                    }
+                    crate::models::Severity::High => {
+                        stats.high_count += 1;
+                        3
+                    }
+                    crate::models::Severity::Medium => {
+                        stats.medium_count += 1;
+                        2
+                    }
+                    crate::models::Severity::Low => {
+                        stats.low_count += 1;
+                        1
+                    }
+                    crate::models::Severity::Info => {
+                        stats.info_count += 1;
+                        0
+                    }
                 };
                 if val > severity_val {
                     severity_val = val;
@@ -304,13 +323,16 @@ pub async fn generate_report(jsonl_path: &str, output_path: &str) -> Result<()> 
                         3 => "High",
                         2 => "Medium",
                         1 => "Low",
-                        _ => "Info"
+                        _ => "Info",
                     };
                 }
             }
 
             if cvss_count > 0 {
-                stats.avg_cvss = (stats.avg_cvss * (stats.total_findings as f32 - cvss_count as f32) + total_cvss) / stats.total_findings as f32;
+                stats.avg_cvss = (stats.avg_cvss
+                    * (stats.total_findings as f32 - cvss_count as f32)
+                    + total_cvss)
+                    / stats.total_findings as f32;
             }
 
             targets.push(TargetVM {
@@ -326,11 +348,23 @@ pub async fn generate_report(jsonl_path: &str, output_path: &str) -> Result<()> 
 
     let mut reg = Handlebars::new();
     reg.set_strict_mode(true);
-    reg.register_helper("json_stringify", Box::new(|h: &handlebars::Helper, _: &Handlebars, _: &handlebars::Context, _: &mut handlebars::RenderContext, out: &mut dyn handlebars::Output| -> handlebars::HelperResult {
-        let param = h.param(0).ok_or(handlebars::RenderError::new("Missing parameter"))?;
-        out.write(&serde_json::to_string_pretty(param.value()).unwrap_or_default())?;
-        Ok(())
-    }));
+    reg.register_helper(
+        "json_stringify",
+        Box::new(
+            |h: &handlebars::Helper,
+             _: &Handlebars,
+             _: &handlebars::Context,
+             _: &mut handlebars::RenderContext,
+             out: &mut dyn handlebars::Output|
+             -> handlebars::HelperResult {
+                let param = h
+                    .param(0)
+                    .ok_or(handlebars::RenderError::new("Missing parameter"))?;
+                out.write(&serde_json::to_string_pretty(param.value()).unwrap_or_default())?;
+                Ok(())
+            },
+        ),
+    );
 
     // Generate Mermaid Graph
     let mut mermaid = String::from("graph LR\n  Start((Start)) --> Targets[Targets]\n");
@@ -340,11 +374,14 @@ pub async fn generate_report(jsonl_path: &str, output_path: &str) -> Result<()> 
         if t.has_findings {
             for (i, f) in t.findings.iter().enumerate() {
                 let finding_id = format!("{}_f{}", host_id, i);
-                mermaid.push_str(&format!("  {} --> {}[\"{:?}\"]\n", host_id, finding_id, f.core.category));
+                mermaid.push_str(&format!(
+                    "  {} --> {}[\"{:?}\"]\n",
+                    host_id, finding_id, f.core.category
+                ));
             }
         }
     }
-    
+
     let vm = FullReportVM {
         metadata: &metadata,
         stats,
@@ -352,17 +389,16 @@ pub async fn generate_report(jsonl_path: &str, output_path: &str) -> Result<()> 
         mermaid_graph: mermaid,
     };
 
-
     let rendered = reg.render_template(HTML_TEMPLATE, &vm)?;
-    
+
     // Ensure directory exists
     if let Some(parent) = out_path.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
             tokio::fs::create_dir_all(parent).await?;
         }
     }
-    
+
     tokio::fs::write(out_path, rendered).await?;
-    
+
     Ok(())
 }

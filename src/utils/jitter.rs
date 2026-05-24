@@ -11,7 +11,7 @@ pub struct JitterSleep {
 impl JitterSleep {
     pub fn for_stealth() -> Self {
         Self {
-            dist: LogNormal::new(2.0, 1.0).unwrap(),  // Mean ~7.4s, std ~13s
+            dist: LogNormal::new(2.0, 1.0).unwrap(), // Mean ~7.4s, std ~13s
             min_ms: 500,
             max_ms: 10000,
         }
@@ -19,7 +19,7 @@ impl JitterSleep {
 
     pub fn minimal() -> Self {
         Self {
-            dist: LogNormal::new(0.5, 0.5).unwrap(),  // Mean ~1.8s
+            dist: LogNormal::new(0.5, 0.5).unwrap(), // Mean ~1.8s
             min_ms: 100,
             max_ms: 2000,
         }

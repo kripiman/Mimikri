@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
 use serde::{Deserialize, Serialize};
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
+use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct NmapOptions {
@@ -16,7 +16,10 @@ pub struct NmapOptions {
 
 /// Global configuration shared across all plugins to ensure consistency and streamline initialization.
 #[derive(Clone)]
-pub struct GlobalConfig<M: ExecutorMode = crate::utils::executor::GhostMode> where M: Clone {
+pub struct GlobalConfig<M: ExecutorMode = crate::utils::executor::GhostMode>
+where
+    M: Clone,
+{
     pub insecure: bool,
     pub jitter: Arc<crate::utils::common::HumanJitter>,
     pub proxy_manager: Arc<crate::utils::proxy::ProxyManager>,
@@ -65,14 +68,18 @@ pub struct GlobalConfig<M: ExecutorMode = crate::utils::executor::GhostMode> whe
 }
 
 impl<M: ExecutorMode> Default for GlobalConfig<M>
-where M: Clone
- {
+where
+    M: Clone,
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<M: ExecutorMode> GlobalConfig<M> where M: Clone {
+impl<M: ExecutorMode> GlobalConfig<M>
+where
+    M: Clone,
+{
     pub fn new() -> Self {
         let policy = Arc::new(crate::core::policy::StaticPolicy::new());
         let proxy_manager = Arc::new(crate::utils::proxy::ProxyManager::new(
@@ -87,7 +94,9 @@ impl<M: ExecutorMode> GlobalConfig<M> where M: Clone {
             false,
         ));
         let res_mgr = crate::core::resource_manager::SysResourceManager::new();
-        let sandbox = Arc::new(crate::core::sandbox::SandboxDispatcher::new(res_mgr).with_policy(policy.clone()));
+        let sandbox = Arc::new(
+            crate::core::sandbox::SandboxDispatcher::new(res_mgr).with_policy(policy.clone()),
+        );
 
         Self {
             insecure: false,
@@ -106,9 +115,14 @@ impl<M: ExecutorMode> GlobalConfig<M> where M: Clone {
             sandbox,
             policy: policy.clone(),
             executor,
-            budget: Arc::new(crate::core::orchestrator::swarm::budget::TokenBudget::new(50000)),
-            correlation_engine: Arc::new(tokio::sync::Mutex::new(crate::core::correlation::CorrelationEngine::new())),
-            stealth_policy: crate::plugins::detection_evasion::stealth_policy::StealthPolicy::default(),
+            budget: Arc::new(crate::core::orchestrator::swarm::budget::TokenBudget::new(
+                50000,
+            )),
+            correlation_engine: Arc::new(tokio::sync::Mutex::new(
+                crate::core::correlation::CorrelationEngine::new(),
+            )),
+            stealth_policy:
+                crate::plugins::detection_evasion::stealth_policy::StealthPolicy::default(),
             mcp_token: None,
             nuclei_tags: None,
             nuclei_severity: None,

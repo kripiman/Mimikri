@@ -1,8 +1,8 @@
+use crate::core::orchestrator::{Orchestrator, OrchestratorConfig};
+use crate::models::TargetHost;
+use crate::utils::executor::ExecutorMode;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use crate::models::TargetHost;
-use crate::core::orchestrator::{Orchestrator, OrchestratorConfig};
-use crate::utils::executor::ExecutorMode;
 
 pub struct ScanningStageSwarm {
     pub swarm_mode: bool,
@@ -33,7 +33,12 @@ pub fn spawn_scanning_stage<M: ExecutorMode>(
 
         if swarm.swarm_mode {
             if let Some(router) = swarm.ai_router {
-                orchestrator = orchestrator.with_swarm_mode(true, swarm.max_tokens, router, swarm.proxy_manager);
+                orchestrator = orchestrator.with_swarm_mode(
+                    true,
+                    swarm.max_tokens,
+                    router,
+                    swarm.proxy_manager,
+                );
             }
         }
         orchestrator.run(scan_rx, sink_tx, shutdown_token).await;

@@ -1,34 +1,33 @@
-use tokio::sync::Mutex;
-use std::os::raw::c_char;
-use crate::models::{TargetHost, Finding};
+use crate::models::{Finding, TargetHost};
 use anyhow::Result;
+use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-
+use tokio::sync::Mutex;
 
 /// V11 HARDENING: ABI Versioning to prevent memory corruption from incompatible plugins.
 /// Incremented to 3 to reflect the transition to full #[repr(C)] models (FindingFFI/TargetHostFFI).
 pub const PLUGIN_ABI_VERSION: u32 = 3;
 
 // FFI Contract Constants for Category
-pub const CATEGORY_EXPOSED_ASSET:    u8 = 0;
-pub const CATEGORY_VULNERABILITY:    u8 = 1;
+pub const CATEGORY_EXPOSED_ASSET: u8 = 0;
+pub const CATEGORY_VULNERABILITY: u8 = 1;
 pub const CATEGORY_MISCONFIGURATION: u8 = 2;
-pub const CATEGORY_CREDENTIAL_LEAK:  u8 = 3;
+pub const CATEGORY_CREDENTIAL_LEAK: u8 = 3;
 pub const CATEGORY_TECHNOLOGY_STACK: u8 = 4;
-pub const CATEGORY_NETWORK_PORT:     u8 = 5;
-pub const CATEGORY_RECON:            u8 = 6;
-pub const CATEGORY_SCANNING:         u8 = 7;
-pub const CATEGORY_AVAILABILITY:     u8 = 8;
-pub const CATEGORY_SCA:              u8 = 9;
-pub const CATEGORY_POSTURE_AUDIT:    u8 = 10;
-pub const CATEGORY_WINDOWS:          u8 = 11;
-pub const CATEGORY_LINUX:            u8 = 12;
+pub const CATEGORY_NETWORK_PORT: u8 = 5;
+pub const CATEGORY_RECON: u8 = 6;
+pub const CATEGORY_SCANNING: u8 = 7;
+pub const CATEGORY_AVAILABILITY: u8 = 8;
+pub const CATEGORY_SCA: u8 = 9;
+pub const CATEGORY_POSTURE_AUDIT: u8 = 10;
+pub const CATEGORY_WINDOWS: u8 = 11;
+pub const CATEGORY_LINUX: u8 = 12;
 
 // FFI Contract Constants for Severity
-pub const SEVERITY_INFO:     u8 = 0;
-pub const SEVERITY_LOW:      u8 = 1;
-pub const SEVERITY_MEDIUM:   u8 = 2;
-pub const SEVERITY_HIGH:     u8 = 3;
+pub const SEVERITY_INFO: u8 = 0;
+pub const SEVERITY_LOW: u8 = 1;
+pub const SEVERITY_MEDIUM: u8 = 2;
+pub const SEVERITY_HIGH: u8 = 3;
 pub const SEVERITY_CRITICAL: u8 = 4;
 
 /// FFI-safe result for plugin names
@@ -48,7 +47,7 @@ pub struct TargetHostFFI {
 }
 
 /// V15 HARDENING: FFI-safe representation of a Finding.
-/// 
+///
 /// /// SAFETY CONTRACT: All *const c_char pointers in this struct are owned by the plugin.
 /// The plugin's free_data_fn is responsible for freeing both the strings and the struct.
 /// The host MUST NOT call free() on any pointer in this struct directly.
@@ -99,7 +98,6 @@ pub struct FFIPluginWrapper {
     sync_lock: Mutex<()>,
 }
 
-
 impl FFIPluginWrapper {
     pub fn new(ffi: ScannerPluginFFI) -> Result<Self> {
         // V10 ABI Handshake: Prevent loading incompatible plugins
@@ -113,12 +111,18 @@ impl FFIPluginWrapper {
             if c_str.is_null() {
                 "unknown".to_string()
             } else {
-                std::ffi::CStr::from_ptr(c_str).to_string_lossy().into_owned()
+                std::ffi::CStr::from_ptr(c_str)
+                    .to_string_lossy()
+                    .into_owned()
             }
         };
         // V12: satisfy &'static str requirement for dynamic plugins
         let cached_name = Box::leak(name_str.into_boxed_str());
-        Ok(Self { ffi, cached_name, sync_lock: Mutex::new(()) })
+        Ok(Self {
+            ffi,
+            cached_name,
+            sync_lock: Mutex::new(()),
+        })
     }
 }
 
@@ -131,7 +135,7 @@ impl crate::plugins::ScannerPlugin for FFIPluginWrapper {
     fn metadata(&self) -> crate::plugins::PluginMetadata {
         let expected_secs = (self.ffi.expected_duration)();
         crate::plugins::PluginMetadata {
-            name: self.name().to_string(), 
+            name: self.name().to_string(),
             description: "Dynamic plugin loaded via SafeFFI bridge.".to_string(),
             target_type: crate::plugins::TargetType::Host,
             risk_level: crate::plugins::RiskLevel::Medium,
@@ -144,7 +148,9 @@ impl crate::plugins::ScannerPlugin for FFIPluginWrapper {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<crate::plugins::Capability> {
@@ -162,7 +168,7 @@ impl crate::plugins::ScannerPlugin for FFIPluginWrapper {
         let ffi = self.ffi;
         let plugin_ptr = ffi.plugin_ptr;
         let plugin_ptr_usize = plugin_ptr as usize;
-        
+
         // V15 HARDENING: Map native TargetHost to FFI-safe TargetHostFFI
         use std::ffi::CString;
         let c_host = CString::new(target.host.as_str()).unwrap_or_default();
@@ -177,34 +183,45 @@ impl crate::plugins::ScannerPlugin for FFIPluginWrapper {
         unsafe impl Send for SendPtr {}
 
         // PFC-001: Bridge de pánico + spawn_blocking + timeout
-        let result = tokio::time::timeout(timeout_duration, tokio::task::spawn_blocking(move || {
-            let inner_plugin_ptr = plugin_ptr_usize as *const ();
+        let result = tokio::time::timeout(
+            timeout_duration,
+            tokio::task::spawn_blocking(move || {
+                let inner_plugin_ptr = plugin_ptr_usize as *const ();
 
-            // SAFETY: CStrings are moved into this closure and kept alive explicitly
-            // until the scan returns, preventing potential Use-After-Free in the plugin.
-            let target_ffi = TargetHostFFI {
-                host: c_host.as_ptr(),
-                ip: c_ip.as_ptr(),
-                status: target_status,
-                target_type,
-            };
+                // SAFETY: CStrings are moved into this closure and kept alive explicitly
+                // until the scan returns, preventing potential Use-After-Free in the plugin.
+                let target_ffi = TargetHostFFI {
+                    host: c_host.as_ptr(),
+                    ip: c_ip.as_ptr(),
+                    status: target_status,
+                    target_type,
+                };
 
-            let result = catch_unwind(AssertUnwindSafe(move || {
-                (ffi.scan)(inner_plugin_ptr, &target_ffi as *const TargetHostFFI)
-            }));
-            
-            // Explicitly drop CStrings AFTER ffi.scan returns
-            drop(c_host);
-            drop(c_ip);
-            
-            result.map(SendPtr)
-        })).await;
+                let result = catch_unwind(AssertUnwindSafe(move || {
+                    (ffi.scan)(inner_plugin_ptr, &target_ffi as *const TargetHostFFI)
+                }));
+
+                // Explicitly drop CStrings AFTER ffi.scan returns
+                drop(c_host);
+                drop(c_ip);
+
+                result.map(SendPtr)
+            }),
+        )
+        .await;
 
         let findings_ptr = match result {
             Ok(Ok(Ok(send_ptr))) => send_ptr.0,
-            Ok(Ok(Err(_))) => anyhow::bail!("Plugin '{}' panicked during scan execution", self.cached_name),
+            Ok(Ok(Err(_))) => anyhow::bail!(
+                "Plugin '{}' panicked during scan execution",
+                self.cached_name
+            ),
             Ok(Err(e)) => anyhow::bail!("Plugin execution task failed: {}", e),
-            Err(_) => anyhow::bail!("Plugin '{}' timed out after {:?}", self.cached_name, timeout_duration),
+            Err(_) => anyhow::bail!(
+                "Plugin '{}' timed out after {:?}",
+                self.cached_name,
+                timeout_duration
+            ),
         };
 
         if findings_ptr.is_null() {
@@ -213,18 +230,26 @@ impl crate::plugins::ScannerPlugin for FFIPluginWrapper {
 
         unsafe {
             use std::ffi::CStr;
-            // V11 HARDENING (CRIT-002): Read the struct via pointer. 
+            // V11 HARDENING (CRIT-002): Read the struct via pointer.
             let ffi_findings = std::ptr::read(findings_ptr);
-            
+
             // Validation of pointers and length before slice creation
             if ffi_findings.data.is_null() && ffi_findings.len > 0 {
-                    (ffi.free_findings_struct)(findings_ptr);
-                    anyhow::bail!("Plugin '{}' returned null data pointer with non-zero length", self.cached_name);
+                (ffi.free_findings_struct)(findings_ptr);
+                anyhow::bail!(
+                    "Plugin '{}' returned null data pointer with non-zero length",
+                    self.cached_name
+                );
             }
-            
-            if ffi_findings.len > 10_000 { // Reduced cap for safety
-                    (ffi.free_findings_struct)(findings_ptr);
-                    anyhow::bail!("Plugin '{}' returned suspiciously large number of findings ({})", self.cached_name, ffi_findings.len);
+
+            if ffi_findings.len > 10_000 {
+                // Reduced cap for safety
+                (ffi.free_findings_struct)(findings_ptr);
+                anyhow::bail!(
+                    "Plugin '{}' returned suspiciously large number of findings ({})",
+                    self.cached_name,
+                    ffi_findings.len
+                );
             }
 
             // 1. Read memory via FFI-safe slice (FindingFFI layout is stable)
@@ -233,28 +258,37 @@ impl crate::plugins::ScannerPlugin for FFIPluginWrapper {
             } else {
                 &[]
             };
-            
+
             // 2. Map FindingFFI back to native Findings
             let mut native_findings = Vec::with_capacity(ffi_findings.len);
             for f_ffi in slice {
                 let title = CStr::from_ptr(f_ffi.title).to_string_lossy().into_owned();
-                let desc = CStr::from_ptr(f_ffi.description).to_string_lossy().into_owned();
+                let desc = CStr::from_ptr(f_ffi.description)
+                    .to_string_lossy()
+                    .into_owned();
                 let evidence_raw = CStr::from_ptr(f_ffi.evidence_json).to_string_lossy();
-                let evidence: serde_json::Value = serde_json::from_str(&evidence_raw).unwrap_or(serde_json::json!({}));
-                
+                let evidence: serde_json::Value =
+                    serde_json::from_str(&evidence_raw).unwrap_or(serde_json::json!({}));
+
                 let severity = severity_from_u8(f_ffi.severity);
                 let category = category_from_u8(f_ffi.category);
 
-                let mut finding = Finding::new(&uuid::Uuid::new_v4().to_string(), category, severity, &desc, evidence);
+                let mut finding = Finding::new(
+                    &uuid::Uuid::new_v4().to_string(),
+                    category,
+                    severity,
+                    &desc,
+                    evidence,
+                );
                 finding.core.title = title;
                 native_findings.push(finding);
             }
-            
+
             // 3. Plugin-orchestrated cleanup:
             // SAFETY: As per contract, free_data_fn must free strings and the data array.
             (ffi_findings.free_data_fn)(ffi_findings.data, ffi_findings.len, ffi_findings.capacity);
             (ffi.free_findings_struct)(findings_ptr);
-            
+
             Ok(native_findings)
         }
     }
@@ -265,29 +299,29 @@ impl crate::plugins::ScannerPlugin for FFIPluginWrapper {
 pub(crate) fn category_from_u8(v: u8) -> crate::models::Category {
     use crate::models::Category::*;
     match v {
-        CATEGORY_EXPOSED_ASSET    => ExposedAsset,
-        CATEGORY_VULNERABILITY    => Vulnerability,
+        CATEGORY_EXPOSED_ASSET => ExposedAsset,
+        CATEGORY_VULNERABILITY => Vulnerability,
         CATEGORY_MISCONFIGURATION => Misconfiguration,
-        CATEGORY_CREDENTIAL_LEAK  => CredentialLeak,
+        CATEGORY_CREDENTIAL_LEAK => CredentialLeak,
         CATEGORY_TECHNOLOGY_STACK => TechnologyStack,
-        CATEGORY_NETWORK_PORT     => NetworkPort,
-        CATEGORY_RECON           => Recon,
-        CATEGORY_SCANNING        => Scanning,
-        CATEGORY_AVAILABILITY    => Availability,
-        CATEGORY_SCA             => SCA,
-        CATEGORY_POSTURE_AUDIT    => PostureAudit,
-        CATEGORY_WINDOWS         => Windows,
-        CATEGORY_LINUX           => Linux,
-        _  => Scanning, // Fallback documentado
+        CATEGORY_NETWORK_PORT => NetworkPort,
+        CATEGORY_RECON => Recon,
+        CATEGORY_SCANNING => Scanning,
+        CATEGORY_AVAILABILITY => Availability,
+        CATEGORY_SCA => SCA,
+        CATEGORY_POSTURE_AUDIT => PostureAudit,
+        CATEGORY_WINDOWS => Windows,
+        CATEGORY_LINUX => Linux,
+        _ => Scanning, // Fallback documentado
     }
 }
 
 pub(crate) fn severity_from_u8(v: u8) -> crate::models::Severity {
     use crate::models::Severity::*;
     match v {
-        SEVERITY_LOW      => Low,
-        SEVERITY_MEDIUM   => Medium,
-        SEVERITY_HIGH     => High,
+        SEVERITY_LOW => Low,
+        SEVERITY_MEDIUM => Medium,
+        SEVERITY_HIGH => High,
         SEVERITY_CRITICAL => Critical,
         _ => Info, // Fallback a Info
     }
@@ -298,4 +332,3 @@ impl Drop for FFIPluginWrapper {
         (self.ffi.destroy)(self.ffi.plugin_ptr);
     }
 }
-

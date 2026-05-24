@@ -1,21 +1,21 @@
 use anyhow::{Context, Result};
+use futures::stream::StreamExt;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, error};
-use futures::stream::StreamExt;
+use tracing::{error, info};
 
-use crate::models::TargetHost;
-use crate::core::pipeline::{Pipeline, PipelineBuilder};
-use crate::core::sink::DataSink;
-use crate::core::factory::EngineFactory;
 use crate::core::agent::AutonomousAgent;
 use crate::core::approval_gate::ApprovalGate;
-use crate::core::capability_layer::{ScanLayerPolicy, ScanLayer};
-use crate::core::sandbox::SandboxDispatcher;
+use crate::core::capability_layer::{ScanLayer, ScanLayerPolicy};
+use crate::core::factory::EngineFactory;
+use crate::core::pipeline::{Pipeline, PipelineBuilder};
 use crate::core::resource_manager::SysResourceManager;
-use crate::utils::{LivenessChecker, MemoryMonitor, JitterSleep};
+use crate::core::sandbox::SandboxDispatcher;
+use crate::core::sink::DataSink;
+use crate::models::TargetHost;
 use crate::plugins::GlobalConfig;
+use crate::utils::{JitterSleep, LivenessChecker, MemoryMonitor};
 
 #[derive(Clone)]
 pub struct EngineConfig {
@@ -77,7 +77,7 @@ pub struct EngineConfig {
     pub workspace_dir: String,
 }
 
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
 
 pub struct RedTeamEngine<M: ExecutorMode = crate::utils::executor::GhostMode> {
     config: EngineConfig,
@@ -104,17 +104,21 @@ impl RedTeamEngine<crate::utils::executor::GhostMode> {
             config.proxy_mode,
             config.proxy_pool_size,
         ));
-        let sandbox = Arc::new(SandboxDispatcher::new(res_mgr)
-            .with_policy(policy.clone())
-            .with_proxy_manager(proxy_manager.clone()));
+        let sandbox = Arc::new(
+            SandboxDispatcher::new(res_mgr)
+                .with_policy(policy.clone())
+                .with_proxy_manager(proxy_manager.clone()),
+        );
 
         let executor = Arc::new(crate::utils::executor::StealthExecutor::new(
             policy.clone(),
             Some(proxy_manager.clone()),
             config.stealth,
         ));
-        
-        let correlation_engine = Arc::new(tokio::sync::Mutex::new(crate::core::correlation::CorrelationEngine::new()));
+
+        let correlation_engine = Arc::new(tokio::sync::Mutex::new(
+            crate::core::correlation::CorrelationEngine::new(),
+        ));
         Self {
             config,
             shutdown_token,
@@ -130,13 +134,17 @@ impl RedTeamEngine<crate::utils::executor::GhostMode> {
 
     pub fn from_config(config: EngineConfig, utils_config: &crate::utils::config::Config) -> Self {
         let shutdown_token = CancellationToken::new();
-        let correlation_engine = Arc::new(tokio::sync::Mutex::new(crate::core::correlation::CorrelationEngine::new()));
+        let correlation_engine = Arc::new(tokio::sync::Mutex::new(
+            crate::core::correlation::CorrelationEngine::new(),
+        ));
         let memory_monitor = Arc::new(MemoryMonitor::new(
-            utils_config.soft_memory_limit_mb as u32, 
-            utils_config.hard_memory_limit_mb as u32
+            utils_config.soft_memory_limit_mb as u32,
+            utils_config.hard_memory_limit_mb as u32,
         ));
         let res_mgr = SysResourceManager::new();
-        let policy = Arc::new(crate::core::policy::ReloadablePolicy::new(utils_config.policy_file.as_deref()));
+        let policy = Arc::new(crate::core::policy::ReloadablePolicy::new(
+            utils_config.policy_file.as_deref(),
+        ));
         let approval_gate = Arc::new(ApprovalGate::for_red_team());
         let proxy_manager = Arc::new(crate::utils::proxy::ProxyManager::new(
             config.proxies.clone().unwrap_or_default(),
@@ -144,16 +152,18 @@ impl RedTeamEngine<crate::utils::executor::GhostMode> {
             config.proxy_mode,
             config.proxy_pool_size,
         ));
-        let sandbox = Arc::new(SandboxDispatcher::new(res_mgr)
-            .with_policy(policy.clone())
-            .with_proxy_manager(proxy_manager.clone()));
+        let sandbox = Arc::new(
+            SandboxDispatcher::new(res_mgr)
+                .with_policy(policy.clone())
+                .with_proxy_manager(proxy_manager.clone()),
+        );
 
         let executor = Arc::new(crate::utils::executor::StealthExecutor::new(
             policy.clone(),
             Some(proxy_manager.clone()),
             config.stealth,
         ));
-        
+
         Self {
             config,
             shutdown_token,
@@ -170,39 +180,56 @@ impl RedTeamEngine<crate::utils::executor::GhostMode> {
 
 impl<M: ExecutorMode> RedTeamEngine<M> {
     pub async fn run_autopilot(
-        &self, 
+        &self,
         mut target_hosts: futures::stream::BoxStream<'static, TargetHost>,
-        sink: Box<dyn DataSink>
+        sink: Box<dyn DataSink>,
     ) -> Result<()> {
         info!("🤖 SENTINEL: Activating Autonomous Agent with Native AI Cascade...");
-        
-        let router = EngineFactory::build_default_router(self.config.ollama_url.clone(), self.proxy_manager.clone())?;
-        
+
+        let router = EngineFactory::build_default_router(
+            self.config.ollama_url.clone(),
+            self.proxy_manager.clone(),
+        )?;
+
         // V13: Readiness Gate - Prevent OPSEC leak by waiting for stealth readiness
         if self.config.stealth {
-            self.proxy_manager.wait_for_readiness(self.config.readiness_timeout).await
-                .context(format!("Failed to establish stealth infrastructure readiness within {:?}", self.config.readiness_timeout))?;
+            self.proxy_manager
+                .wait_for_readiness(self.config.readiness_timeout)
+                .await
+                .context(format!(
+                    "Failed to establish stealth infrastructure readiness within {:?}",
+                    self.config.readiness_timeout
+                ))?;
         }
 
         // Phase 3: Initialize ActivityLog
-        let timeline_path = std::path::PathBuf::from(&self.config.workspace_dir).join("timeline.jsonl");
-        let activity_log = Arc::new(crate::utils::activity_log::ActivityLog::new(timeline_path).await?);
-        
+        let timeline_path =
+            std::path::PathBuf::from(&self.config.workspace_dir).join("timeline.jsonl");
+        let activity_log =
+            Arc::new(crate::utils::activity_log::ActivityLog::new(timeline_path).await?);
+
         // Add TimelineSink and BugBountyDraftSink to the pipeline
         let mut multi_sink = crate::core::sink::MultiSink::new();
         multi_sink.add(sink);
-        multi_sink.add(Box::new(crate::core::sink::TimelineSink::new(activity_log.clone())));
-        
+        multi_sink.add(Box::new(crate::core::sink::TimelineSink::new(
+            activity_log.clone(),
+        )));
+
         // V14 Phase 1: Repro-Proof Generator Drafts
-        multi_sink.add(Box::new(crate::core::sink::BugBountyDraftSink::new(std::path::PathBuf::from(&self.config.workspace_dir)).await));
-        
+        multi_sink.add(Box::new(
+            crate::core::sink::BugBountyDraftSink::new(std::path::PathBuf::from(
+                &self.config.workspace_dir,
+            ))
+            .await,
+        ));
+
         let builder = self.prepare_pipeline_builder(Box::new(multi_sink));
         let mut pipeline = builder.build()?;
-        
+
         // Start standalone sink for Autonomous streaming
         let (sink_tx, sink_handle) = pipeline.start_sink_stage().await?;
         let pipeline_arc = Arc::new(pipeline);
-        
+
         let agent = AutonomousAgent::new(
             router,
             pipeline_arc,
@@ -210,7 +237,8 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
             Some(self.proxy_manager.clone()),
             self.executor.clone(),
             self.policy.clone(),
-        ).with_activity_log(activity_log);
+        )
+        .with_activity_log(activity_log);
 
         while let Some(target) = target_hosts.next().await {
             if let Err(e) = agent.run_autopilot(target, sink_tx.clone()).await {
@@ -224,10 +252,10 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
     }
 
     pub async fn run_pipeline(
-        &self, 
+        &self,
         target_hosts: futures::stream::BoxStream<'static, TargetHost>,
         sink: Box<dyn DataSink>,
-        swarm: bool
+        swarm: bool,
     ) -> Result<()> {
         if swarm {
             info!("🐝 SWARM: Multi-Agent Enjambre mode activated.");
@@ -236,39 +264,62 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
         // V14 Phase 1: Wrap sink in MultiSink to include BugBountyDraftSink
         let mut multi_sink = crate::core::sink::MultiSink::new();
         multi_sink.add(sink);
-        multi_sink.add(Box::new(crate::core::sink::BugBountyDraftSink::new(std::path::PathBuf::from(&self.config.workspace_dir)).await));
+        multi_sink.add(Box::new(
+            crate::core::sink::BugBountyDraftSink::new(std::path::PathBuf::from(
+                &self.config.workspace_dir,
+            ))
+            .await,
+        ));
 
         let mut builder = self.prepare_pipeline_builder(Box::new(multi_sink));
-        
+
         // V13: Readiness Gate - Prevent OPSEC leak by waiting for stealth readiness
         if self.config.stealth {
-            self.proxy_manager.wait_for_readiness(self.config.readiness_timeout).await
-                .context(format!("Failed to establish stealth infrastructure readiness within {:?}", self.config.readiness_timeout))?;
+            self.proxy_manager
+                .wait_for_readiness(self.config.readiness_timeout)
+                .await
+                .context(format!(
+                    "Failed to establish stealth infrastructure readiness within {:?}",
+                    self.config.readiness_timeout
+                ))?;
         }
 
         if swarm {
-            let router = EngineFactory::build_default_router(self.config.ollama_url.clone(), self.proxy_manager.clone())?;
-            builder = builder.with_swarm(true, self.config.max_tokens, router, Some(self.proxy_manager.clone()), self.executor.clone(), self.policy.clone());
+            let router = EngineFactory::build_default_router(
+                self.config.ollama_url.clone(),
+                self.proxy_manager.clone(),
+            )?;
+            builder = builder.with_swarm(
+                true,
+                self.config.max_tokens,
+                router,
+                Some(self.proxy_manager.clone()),
+                self.executor.clone(),
+                self.policy.clone(),
+            );
         }
 
         let pipeline = builder.build()?;
         pipeline.run(target_hosts).await?;
-        
+
         Ok(())
     }
 
     /// V13: Orchestrates the stealth infrastructure by provisioning DO exits when on Oracle.
     pub async fn init_stealth_infrastructure(&self, do_token: String) -> Result<()> {
-        use crate::utils::stealth_detect::is_oracle_cloud;
         use crate::infrastructure::digital_ocean::DigitalOceanClient;
-        
+        use crate::utils::stealth_detect::is_oracle_cloud;
+
         let is_oracle = is_oracle_cloud().await || self.config.stealth;
         if !is_oracle {
             return Ok(());
         }
 
         info!("🛡️ V13: Stealth Mode Active. Ensuring DigitalOcean exit nodes...");
-        let do_client = Arc::new(DigitalOceanClient::new(do_token, self.proxy_manager.clone()));
+        let do_client = Arc::new(DigitalOceanClient::new(
+            do_token,
+            self.proxy_manager.clone(),
+        ));
         let pm = self.proxy_manager.clone();
         let shutdown = self.shutdown_token.clone();
 
@@ -284,36 +335,53 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
         // Provisioning Task: Ensure at least one DO exit node is always available
         tokio::spawn(async move {
             loop {
-                if shutdown.is_cancelled() { break; }
-                
+                if shutdown.is_cancelled() {
+                    break;
+                }
+
                 // V14.1 High-Speed Egress: Maintain the Pre-Warmed Pool
                 let current_exits = pm.get_managed_exits().len();
                 let pool_size = pm.proxy_pool_size as usize;
-                
+
                 if current_exits < pool_size || (current_exits == 0 && pool_size == 0) {
                     let mode = pm.proxy_mode;
                     let target = if pool_size == 0 { 1 } else { pool_size };
                     info!("🚀 STEALTH: Maintaining pool (Current: {}, Target: {}). Provisioning new DigitalOcean droplet (nyc1) in mode {:?}...", current_exits, target, mode);
-                    match do_client.create_droplet(&format!("stealth-exit-{:x}", rand::random::<u32>()), "nyc1", mode).await {
+                    match do_client
+                        .create_droplet(
+                            &format!("stealth-exit-{:x}", rand::random::<u32>()),
+                            "nyc1",
+                            mode,
+                        )
+                        .await
+                    {
                         Ok(droplet) => {
-                            info!("⏳ STEALTH: Waiting for droplet IP (Managed node ID: {})...", droplet.id);
+                            info!(
+                                "⏳ STEALTH: Waiting for droplet IP (Managed node ID: {})...",
+                                droplet.id
+                            );
                             match do_client.wait_for_ip(droplet.id).await {
                                 Ok(ip) => {
                                     let mut ready = false;
                                     let user = droplet.socks_user.as_deref().unwrap_or("operator");
                                     let pass = droplet.socks_pass.as_deref().unwrap_or("");
-                                    
+
                                     info!("⏳ STEALTH: Provisioned IP {}. Validating professional SOCKS5 auth ({})...", ip, user);
-                                    
-                                    for _ in 0..15 { 
+
+                                    for _ in 0..15 {
                                         // Health check: Can we connect?
-                                        if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(format!("{}:1080", ip))).await {
+                                        if let Ok(Ok(_)) = tokio::time::timeout(
+                                            Duration::from_secs(2),
+                                            tokio::net::TcpStream::connect(format!("{}:1080", ip)),
+                                        )
+                                        .await
+                                        {
                                             ready = true;
                                             break;
                                         }
                                         tokio::time::sleep(Duration::from_secs(2)).await;
                                     }
- 
+
                                     if ready {
                                         pm.add_managed_exit_with_auth(ip, user, pass);
                                     } else {
@@ -327,14 +395,17 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
                         Err(e) => error!("❌ STEALTH: Failed to create DO droplet: {}", e),
                     }
                 }
-                
+
                 tokio::time::sleep(Duration::from_secs(60)).await; // Faster check while provisioning
             }
         });
 
         Ok(())
     }
-    fn build_global_config(&self, jitter: Arc<crate::utils::common::HumanJitter>) -> GlobalConfig<M> {
+    fn build_global_config(
+        &self,
+        jitter: Arc<crate::utils::common::HumanJitter>,
+    ) -> GlobalConfig<M> {
         GlobalConfig {
             insecure: self.config.insecure,
             jitter,
@@ -352,12 +423,15 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
             sandbox: self.sandbox.clone(),
             policy: self.policy.clone(),
             executor: self.executor.clone(),
-            budget: Arc::new(crate::core::orchestrator::swarm::budget::TokenBudget::new(self.config.max_tokens)),
+            budget: Arc::new(crate::core::orchestrator::swarm::budget::TokenBudget::new(
+                self.config.max_tokens,
+            )),
             correlation_engine: self.correlation_engine.clone(),
             mcp_token: self.config.mcp_token.clone(),
             nuclei_tags: crate::utils::config::Config::from_env().nuclei_tags,
             nuclei_severity: crate::utils::config::Config::from_env().nuclei_severity,
-            nuclei_custom_templates: crate::utils::config::Config::from_env().nuclei_custom_templates,
+            nuclei_custom_templates: crate::utils::config::Config::from_env()
+                .nuclei_custom_templates,
             mobsf_url: self.config.mobsf_url.clone(),
             mobsf_api_key: self.config.mobsf_api_key.clone(),
             mobsf_timeout_secs: self.config.mobsf_timeout_secs,
@@ -389,7 +463,8 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
             sliver_cert_path: self.config.sliver_cert_path.clone(),
             sliver_key_path: self.config.sliver_key_path.clone(),
             sliver_server_addr: self.config.sliver_server_addr.clone(),
-            stealth_policy: crate::plugins::detection_evasion::stealth_policy::StealthPolicy::default(),
+            stealth_policy:
+                crate::plugins::detection_evasion::stealth_policy::StealthPolicy::default(),
         }
     }
 
@@ -417,12 +492,12 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
 
     fn prepare_pipeline_builder(&self, sink: Box<dyn DataSink>) -> PipelineBuilder<M> {
         let liveness_checker = LivenessChecker::new_with_proxy(
-            self.config.dns_servers.clone(), 
-            self.config.doh, 
-            Some(self.proxy_manager.clone())
+            self.config.dns_servers.clone(),
+            self.config.doh,
+            Some(self.proxy_manager.clone()),
         );
         let jitter = Arc::new(crate::utils::common::HumanJitter::new(100, 1500));
-        
+
         let stealth_jitter = if self.config.stealth {
             Some(JitterSleep::for_stealth())
         } else {
@@ -431,13 +506,14 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
 
         let policy = ScanLayerPolicy {
             max_layer: self.config.max_layer,
-            require_approval_for_layer_3_plus: true, 
+            require_approval_for_layer_3_plus: true,
             require_approval_for_layer_4_plus: true,
             require_approval_for_layer_5: true,
         };
 
         let global_config = self.build_global_config(jitter);
-        let mut builder = self.build_pipeline_builder_from(liveness_checker, stealth_jitter, policy, sink);
+        let mut builder =
+            self.build_pipeline_builder_from(liveness_checker, stealth_jitter, policy, sink);
 
         // Add discovery plugins
         for p in crate::plugins::get_all_discovery(global_config.clone()) {
@@ -459,7 +535,9 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
             }
         }
 
-        if let (Some(tx), Some(targets)) = (&self.config.dashboard_tx, &self.config.dashboard_targets) {
+        if let (Some(tx), Some(targets)) =
+            (&self.config.dashboard_tx, &self.config.dashboard_targets)
+        {
             builder = builder.with_dashboard(tx.clone(), targets.clone());
         }
 
@@ -469,7 +547,7 @@ impl<M: ExecutorMode> RedTeamEngine<M> {
     pub fn shutdown_token(&self) -> CancellationToken {
         self.shutdown_token.clone()
     }
-    
+
     pub fn memory_monitor(&self) -> Arc<MemoryMonitor> {
         self.memory_monitor.clone()
     }

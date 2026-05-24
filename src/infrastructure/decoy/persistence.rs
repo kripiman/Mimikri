@@ -1,7 +1,7 @@
-use anyhow::{Result, Context};
-use tokio::sync::mpsc;
-use tracing::{info, error};
 use super::models::TripwireEvent;
+use anyhow::{Context, Result};
+use tokio::sync::mpsc;
+use tracing::{error, info};
 
 /// Spawns a background task that drains TripwireEvents from the channel
 /// and persists them into SQLite (WAL mode). This decouples the listener
@@ -10,11 +10,12 @@ pub async fn spawn_tripwire_persister(
     mut rx: mpsc::Receiver<TripwireEvent>,
     db_url: &str,
 ) -> Result<tokio::task::JoinHandle<()>> {
-    let pool = sqlx::PgPool::connect(db_url).await
+    let pool = sqlx::PgPool::connect(db_url)
+        .await
         .context("Failed to connect to tripwire SQLite database")?;
 
     // Ensure WAL mode + create table
-    
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS tripwire_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,8 +27,10 @@ pub async fn spawn_tripwire_persister(
             headers_json TEXT,
             ja3_hash TEXT,
             triggered_at TEXT NOT NULL
-        )"
-    ).execute(&pool).await?;
+        )",
+    )
+    .execute(&pool)
+    .await?;
 
     let handle = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {

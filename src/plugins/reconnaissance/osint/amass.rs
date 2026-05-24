@@ -1,11 +1,11 @@
-use crate::plugins::{DiscoveryPlugin, Capability, DiscoveryResult};
 use crate::models::TargetHost;
+use crate::plugins::{Capability, DiscoveryPlugin, DiscoveryResult};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, warn};
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct AmassScanner {
     binary_path: String,
@@ -20,9 +20,7 @@ impl Default for AmassScanner {
 impl AmassScanner {
     pub fn new() -> Self {
         let path = detect_tool("amass");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -35,7 +33,8 @@ impl DiscoveryPlugin for AmassScanner {
     fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
-            description: "Discovery of subdomains using passive OSINT techniques through Amass.".to_string(),
+            description: "Discovery of subdomains using passive OSINT techniques through Amass."
+                .to_string(),
             target_type: crate::plugins::TargetType::Osint,
             risk_level: crate::plugins::RiskLevel::Safe,
             layer: crate::core::capability_layer::ScanLayer::Passive,
@@ -47,7 +46,9 @@ impl DiscoveryPlugin for AmassScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::SubdomainEnumeration, Capability::OsintDiscovery]
@@ -57,14 +58,14 @@ impl DiscoveryPlugin for AmassScanner {
         Ok(crate::utils::check_tool_availability("amass").await)
     }
 
-
     async fn discover(&self, target: &TargetHost) -> Result<Vec<DiscoveryResult>> {
         info!("AmassScanner: launching discovery against {}", target.host);
 
         // Amass 'enum' mode is standard for subdomain discovery
         let child = Command::new(&self.binary_path)
             .arg("enum")
-            .arg("-d").arg(&target.host)
+            .arg("-d")
+            .arg(&target.host)
             .arg("-passive") // Passive for speed and stealth by default
             .arg("-silent")
             .stdin(Stdio::null())
@@ -73,7 +74,10 @@ impl DiscoveryPlugin for AmassScanner {
             .spawn()
             .context("Failed to spawn amass")?;
 
-        let output = child.wait_with_output().await.context("Failed to wait for amass")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed to wait for amass")?;
 
         if !output.status.success() {
             warn!("Amass failed on {}", target.host);
@@ -81,11 +85,14 @@ impl DiscoveryPlugin for AmassScanner {
 
         let mut discovered = Vec::new();
         let content = String::from_utf8_lossy(&output.stdout);
-        
+
         for line in content.lines() {
             let domain = line.trim().to_string();
             if !domain.is_empty() && domain.contains(&target.host) {
-                discovered.push(DiscoveryResult { host: domain, metadata: serde_json::json!({}) });
+                discovered.push(DiscoveryResult {
+                    host: domain,
+                    metadata: serde_json::json!({}),
+                });
             }
         }
 

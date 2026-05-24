@@ -12,13 +12,13 @@ impl CavemanOptimizer {
         }
 
         let caveman_meta = match level {
-            CavemanLevel::Lite => 
+            CavemanLevel::Lite =>
                 "Respond terse like smart caveman. No filler/hedging. Keep articles + full sentences. Professional but tight. TECHNICAL ACCURACY 100%.",
-            CavemanLevel::Full => 
+            CavemanLevel::Full =>
                 "Respond terse like smart caveman. Drop articles (a/an/the), filler (just/really/basically), pleasantries. Fragments OK. Short synonyms. Pattern: [thing] [action] [reason]. [next step].",
-            CavemanLevel::Ultra => 
+            CavemanLevel::Ultra =>
                 "Respond ultra-terse. Telegraphic. Abbreviate (DB/auth/config/req/res/fn/impl). Strip conjunctions. Arrows for causality (X -> Y). One word if enough. TECHNICAL ACCURACY 100%.",
-            CavemanLevel::WenyanUltra => 
+            CavemanLevel::WenyanUltra =>
                 "Respond in FULL Wenyan (Classical Chinese - 文言文). Maximum classical terseness. 90% char reduction. Use classical particles (之/乃/為/其). TECHNICAL ACCURACY 100%.",
             _ => "Respond terse like smart caveman.",
         };
@@ -43,8 +43,7 @@ impl CavemanOptimizer {
             "{}\n\n## HUMAN INTERACTION OVERRIDE\nDO NOT USE CAVEMAN/WENYAN FOR THIS RESPONSE. \
             The human operator needs to validate this or create a script. \
             {} Explain logic, risks, and next steps in detail. Technical terms exact.",
-            instruction,
-            lang_note
+            instruction, lang_note
         )
     }
 }

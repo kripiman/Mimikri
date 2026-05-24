@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category, PLUGIN_PROWLER};
+use crate::models::{Category, Finding, Severity, TargetHost, PLUGIN_PROWLER};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
-use tokio::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
+use tracing::info;
 
 pub struct ProwlerScanner {
     binary_path: String,
@@ -21,9 +21,7 @@ impl Default for ProwlerScanner {
 impl ProwlerScanner {
     pub fn new() -> Self {
         let path = detect_tool("prowler");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -52,7 +50,11 @@ impl ScannerPlugin for ProwlerScanner {
     }
 
     fn capabilities(&self) -> Vec<Capability> {
-        vec![Capability::CloudAudit, Capability::ConfigAudit, Capability::IAMAssessment]
+        vec![
+            Capability::CloudAudit,
+            Capability::ConfigAudit,
+            Capability::IAMAssessment,
+        ]
     }
 
     async fn check_dependencies(&self) -> Result<bool> {
@@ -61,14 +63,15 @@ impl ScannerPlugin for ProwlerScanner {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("ProwlerScanner: starting AWS audit for {}", target.host);
-        
+
         // Prowler usually requires AWS credentials in the environment.
         // For this plugin, we assume they are present or managed via profiles.
-        
+
         let mut findings = Vec::new();
         let output = Command::new(&self.binary_path)
             .arg("aws")
-            .arg("-M").arg("json")
+            .arg("-M")
+            .arg("json")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -79,7 +82,7 @@ impl ScannerPlugin for ProwlerScanner {
         let content = String::from_utf8_lossy(&output.stdout);
         // Prowler output is a large JSON. We should parse it carefully.
         // For now, we'll look for FAIL results.
-        
+
         if let Ok(results) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(results_array) = results.as_array() {
                 for res in results_array {
@@ -89,7 +92,7 @@ impl ScannerPlugin for ProwlerScanner {
                             Some("high") => Severity::High,
                             _ => Severity::Medium,
                         };
-                        
+
                         findings.push(Finding::new(
                             &format!("PROWLER-{}", res["CheckID"].as_str().unwrap_or("UNKNOWN")),
                             Category::Misconfiguration,
@@ -99,7 +102,7 @@ impl ScannerPlugin for ProwlerScanner {
                                 "ResourceID": res["ResourceID"],
                                 "Region": res["Region"],
                                 "StatusExtended": res["StatusExtended"]
-                            })
+                            }),
                         ));
                     }
                 }

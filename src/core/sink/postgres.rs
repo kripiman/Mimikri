@@ -1,8 +1,8 @@
-use crate::models::{TargetHost, ScanMetadata};
 use super::DataSink;
+use crate::models::{ScanMetadata, TargetHost};
 use anyhow::{Context, Result};
-use sqlx::PgPool;
 use async_trait::async_trait;
+use sqlx::PgPool;
 use std::path::PathBuf;
 
 /// A DataSink that writes results to a SQLite database.
@@ -16,14 +16,18 @@ impl PostgresSink {
     pub async fn new(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
         let path_str = path.to_string_lossy();
-        
-        let connection_str = if path_str.starts_with("postgres://") || path_str.starts_with("postgresql://") {
-            path_str.into_owned()
-        } else {
-            std::env::var("DATABASE_URL")
-                .map_err(|_| anyhow::anyhow!("DATABASE_URL environment variable is missing and path is not a postgres URL"))?
-        };
-        
+
+        let connection_str =
+            if path_str.starts_with("postgres://") || path_str.starts_with("postgresql://") {
+                path_str.into_owned()
+            } else {
+                std::env::var("DATABASE_URL").map_err(|_| {
+                    anyhow::anyhow!(
+                    "DATABASE_URL environment variable is missing and path is not a postgres URL"
+                )
+                })?
+            };
+
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(50)
             .connect(&connection_str)
@@ -56,27 +60,27 @@ impl PostgresSink {
 
     /// V15: Loads a plugin execution result from the persistent cache.
     pub async fn load_plugin_cache(&self, cache_key: &str) -> Result<Option<String>> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT output FROM plugin_cache WHERE cache_key = $1"
-        )
-        .bind(cache_key)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT output FROM plugin_cache WHERE cache_key = $1")
+                .bind(cache_key)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|r| r.0))
     }
 
     /// PHASE 5: Recuperar todas las estadísticas de MCP
     pub async fn get_mcp_stats(&self) -> Result<std::collections::HashMap<String, i64>> {
-        let rows: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT stat_key, stat_value FROM mcp_stats"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT stat_key, stat_value FROM mcp_stats")
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows.into_iter().collect())
     }
 
     /// PHASE 5: Actualizar/Incrementar estadísticas de forma atómica
-    pub async fn update_mcp_stats(&self, stats: std::collections::HashMap<String, i64>) -> Result<()> {
+    pub async fn update_mcp_stats(
+        &self,
+        stats: std::collections::HashMap<String, i64>,
+    ) -> Result<()> {
         for (key, value) in stats {
             sqlx::query(
                 "INSERT INTO mcp_stats (stat_key, stat_value) VALUES ($1, $2)
@@ -91,8 +95,13 @@ impl PostgresSink {
     }
 
     /// V15: Persistencia de checkpoints para continuidad (MCP-OSINTULT port)
-    pub async fn save_checkpoint(&self, trigger: &str, manifest: &str, content: &str) -> Result<()> {
-        use sha2::{Sha256, Digest};
+    pub async fn save_checkpoint(
+        &self,
+        trigger: &str,
+        manifest: &str,
+        content: &str,
+    ) -> Result<()> {
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(content.as_bytes());
         let digest: String = hex::encode(hasher.finalize());
@@ -111,13 +120,12 @@ impl PostgresSink {
     }
 
     pub async fn load_checkpoint(&self, trigger: &str, digest: &str) -> Result<Option<String>> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT content FROM checkpoints WHERE trigger = $1 AND digest = $2"
-        )
-        .bind(trigger)
-        .bind(digest)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT content FROM checkpoints WHERE trigger = $1 AND digest = $2")
+                .bind(trigger)
+                .bind(digest)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|r| r.0))
     }
 
@@ -176,20 +184,22 @@ impl PostgresSink {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
 pub struct AgentSession {
     pub id: String,          // Unique session/project ID
-    pub agent_role: String,   // ghost / strike / breach
+    pub agent_role: String,  // ghost / strike / breach
     pub target_id: i64,      // FK to targets table
     pub posture: String,     // Active OPSEC level
-    pub memory_json: String,  // Serialized AdaptiveContext/Findings
+    pub memory_json: String, // Serialized AdaptiveContext/Findings
 }
 
 #[async_trait]
 impl DataSink for PostgresSink {
     async fn write(&mut self, target: &TargetHost) -> Result<()> {
-        let scan_id = self.scan_id.context("PostgresSink: scan_id not initialized (write_metadata must be called first)")?;
-        
+        let scan_id = self.scan_id.context(
+            "PostgresSink: scan_id not initialized (write_metadata must be called first)",
+        )?;
+
         // Insert or update target
         let row: (i32,) = sqlx::query_as(
-            "INSERT INTO targets (scan_id, host, ip, status) VALUES ($1, $2, $3, $4) RETURNING id"
+            "INSERT INTO targets (scan_id, host, ip, status) VALUES ($1, $2, $3, $4) RETURNING id",
         )
         .bind(scan_id)
         .bind(&target.host)
@@ -197,16 +207,20 @@ impl DataSink for PostgresSink {
         .bind(format!("{:?}", target.status))
         .fetch_one(&self.pool)
         .await?;
-        
+
         let target_id = row.0 as i32;
 
         // Insert findings
         for finding in target.findings.iter() {
-            let scrubbed_desc = crate::core::ai::scrubber::SCRUBBER.scrub(&finding.core.description);
-            let evidence = crate::core::ai::scrubber::SCRUBBER.scrub(&serde_json::to_string(&finding.evidence)?);
-            let enrichment = crate::core::ai::scrubber::SCRUBBER.scrub(&serde_json::to_string(&finding.enrichment)?);
-            let context = crate::core::ai::scrubber::SCRUBBER.scrub(&serde_json::to_string(&finding.context)?);
-            
+            let scrubbed_desc =
+                crate::core::ai::scrubber::SCRUBBER.scrub(&finding.core.description);
+            let evidence = crate::core::ai::scrubber::SCRUBBER
+                .scrub(&serde_json::to_string(&finding.evidence)?);
+            let enrichment = crate::core::ai::scrubber::SCRUBBER
+                .scrub(&serde_json::to_string(&finding.enrichment)?);
+            let context = crate::core::ai::scrubber::SCRUBBER
+                .scrub(&serde_json::to_string(&finding.context)?);
+
             sqlx::query(
                 "INSERT INTO findings (id, target_id, category, severity, description, evidence, enrichment, context, timestamps)
                  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9) ON CONFLICT(id) DO UPDATE SET category = EXCLUDED.category, severity = EXCLUDED.severity, description = EXCLUDED.description, evidence = EXCLUDED.evidence, enrichment = EXCLUDED.enrichment - 'is_new', context = EXCLUDED.context, timestamps = EXCLUDED.timestamps"
@@ -229,14 +243,13 @@ impl DataSink for PostgresSink {
 
     async fn write_metadata(&mut self, metadata: &ScanMetadata) -> Result<()> {
         self.command_line = metadata.command_line.clone();
-        
-        let row: (i32,) = sqlx::query_as(
-            "INSERT INTO scans (command_line) VALUES ($1) RETURNING id"
-        )
-        .bind(&metadata.command_line)
-        .fetch_one(&self.pool)
-        .await?;
-        
+
+        let row: (i32,) =
+            sqlx::query_as("INSERT INTO scans (command_line) VALUES ($1) RETURNING id")
+                .bind(&metadata.command_line)
+                .fetch_one(&self.pool)
+                .await?;
+
         self.scan_id = Some(row.0 as i64);
         Ok(())
     }

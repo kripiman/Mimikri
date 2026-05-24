@@ -1,8 +1,8 @@
 use crate::models::{ReportPlatform, Severity};
-use anyhow::{Result, anyhow, Context};
+use anyhow::{anyhow, Context, Result};
+use base64::{engine::general_purpose, Engine as _};
 use reqwest::Client;
 use serde_json::json;
-use base64::{Engine as _, engine::general_purpose};
 
 pub struct PlatformClient {
     client: Client,
@@ -29,9 +29,18 @@ impl PlatformClient {
         program_handle: &str,
     ) -> Result<String> {
         match self.platform {
-            ReportPlatform::HackerOne => self.submit_h1(report_md, title, severity, program_handle).await,
-            ReportPlatform::BugCrowd => self.submit_bugcrowd(report_md, title, severity, program_handle).await,
-            ReportPlatform::Intigriti => self.submit_intigriti(report_md, title, severity, program_handle).await,
+            ReportPlatform::HackerOne => {
+                self.submit_h1(report_md, title, severity, program_handle)
+                    .await
+            }
+            ReportPlatform::BugCrowd => {
+                self.submit_bugcrowd(report_md, title, severity, program_handle)
+                    .await
+            }
+            ReportPlatform::Intigriti => {
+                self.submit_intigriti(report_md, title, severity, program_handle)
+                    .await
+            }
         }
     }
 
@@ -50,7 +59,10 @@ impl PlatformClient {
         severity: &Severity,
         program_handle: &str,
     ) -> Result<String> {
-        let username = self.username.as_ref().ok_or_else(|| anyhow!("H1_USERNAME is required for HackerOne submissions"))?;
+        let username = self
+            .username
+            .as_ref()
+            .ok_or_else(|| anyhow!("H1_USERNAME is required for HackerOne submissions"))?;
         let auth = general_purpose::STANDARD.encode(format!("{}:{}", username, self.api_key));
 
         let payload = json!({
@@ -65,7 +77,8 @@ impl PlatformClient {
             }
         });
 
-        let resp = self.client
+        let resp = self
+            .client
             .post("https://api.hackerone.com/v1/reports")
             .header("Authorization", format!("Basic {}", auth))
             .json(&payload)
@@ -80,8 +93,10 @@ impl PlatformClient {
         }
 
         let body: serde_json::Value = resp.json().await?;
-        let report_id = body["data"]["id"].as_str().ok_or_else(|| anyhow!("Failed to parse report ID from H1 response"))?;
-        
+        let report_id = body["data"]["id"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Failed to parse report ID from H1 response"))?;
+
         Ok(format!("https://hackerone.com/reports/{}", report_id))
     }
 
@@ -95,7 +110,7 @@ impl PlatformClient {
         // Bugcrowd External Submission API (requires Token auth)
         // Note: program_handle is used as the target or part of the URL/payload depending on API version.
         // This implementation follows the user's spec: Authorization: Token token={key}
-        
+
         let payload = json!({
             "submission": {
                 "title": title,
@@ -105,7 +120,8 @@ impl PlatformClient {
             }
         });
 
-        let resp = self.client
+        let resp = self
+            .client
             .post("https://tracker.bugcrowd.com/external_submissions.json")
             .header("Authorization", format!("Token token={}", self.api_key))
             .json(&payload)
@@ -143,7 +159,8 @@ impl PlatformClient {
             "programHandle": program_handle,
         });
 
-        let resp = self.client
+        let resp = self
+            .client
             .post("https://api.intigriti.com/external/researcher/v1/submission")
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&payload)
@@ -161,11 +178,18 @@ impl PlatformClient {
     }
 
     async fn fetch_h1_scope(&self, program_handle: &str) -> Result<Vec<String>> {
-        let username = self.username.as_ref().ok_or_else(|| anyhow!("H1_USERNAME is required for HackerOne"))?;
+        let username = self
+            .username
+            .as_ref()
+            .ok_or_else(|| anyhow!("H1_USERNAME is required for HackerOne"))?;
         let auth = general_purpose::STANDARD.encode(format!("{}:{}", username, self.api_key));
 
-        let url = format!("https://api.hackerone.com/v1/programs/{}/structured_scopes", program_handle);
-        let resp = self.client
+        let url = format!(
+            "https://api.hackerone.com/v1/programs/{}/structured_scopes",
+            program_handle
+        );
+        let resp = self
+            .client
             .get(&url)
             .header("Authorization", format!("Basic {}", auth))
             .send()
@@ -194,8 +218,12 @@ impl PlatformClient {
     }
 
     async fn fetch_bugcrowd_scope(&self, program_handle: &str) -> Result<Vec<String>> {
-        let url = format!("https://tracker.bugcrowd.com/programs/{}/scope.json", program_handle);
-        let resp = self.client
+        let url = format!(
+            "https://tracker.bugcrowd.com/programs/{}/scope.json",
+            program_handle
+        );
+        let resp = self
+            .client
             .get(&url)
             .header("Authorization", format!("Token token={}", self.api_key))
             .send()
@@ -220,8 +248,12 @@ impl PlatformClient {
     }
 
     async fn fetch_intigriti_scope(&self, program_handle: &str) -> Result<Vec<String>> {
-        let url = format!("https://api.intigriti.com/external/researcher/v1/programs/{}", program_handle);
-        let resp = self.client
+        let url = format!(
+            "https://api.intigriti.com/external/researcher/v1/programs/{}",
+            program_handle
+        );
+        let resp = self
+            .client
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .send()

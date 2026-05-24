@@ -1,15 +1,12 @@
+use axum::http::StatusCode;
 /// handlers/mobile.rs — Item 15 from PLAN v3 6.B mapping table.
 /// pub async fn submit_mobile_scan (L305–L420)
-use axum::{
-    extract::State,
-    response::IntoResponse,
-};
-use axum::http::StatusCode;
+use axum::{extract::State, response::IntoResponse};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 
-use super::super::state::{DashboardState, ValidatedOperator};
 use super::super::models::MissionRequest;
+use super::super::state::{DashboardState, ValidatedOperator};
 
 pub async fn submit_mobile_scan(
     _auth: ValidatedOperator,
@@ -26,7 +23,11 @@ pub async fn submit_mobile_scan(
             let filename = field.file_name().unwrap_or("app.apk").to_string();
             let lower = filename.to_lowercase();
             if !lower.ends_with(".apk") && !lower.ends_with(".ipa") {
-                return (StatusCode::BAD_REQUEST, "Solo se permiten archivos .apk o .ipa").into_response();
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Solo se permiten archivos .apk o .ipa",
+                )
+                    .into_response();
             }
 
             let safe_name = std::path::Path::new(&filename)
@@ -39,13 +40,17 @@ pub async fn submit_mobile_scan(
             let temp_dir = std::path::PathBuf::from("/tmp/osint_scans").join(uuid.to_string());
 
             if tokio::fs::create_dir_all(&temp_dir).await.is_err() {
-                return (StatusCode::INTERNAL_SERVER_ERROR, "Error creando sandbox").into_response();
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Error creando sandbox")
+                    .into_response();
             }
 
             let path = temp_dir.join(safe_name);
             let mut file = match tokio::fs::File::create(&path).await {
                 Ok(f) => f,
-                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Error creando archivo").into_response(),
+                Err(_) => {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Error creando archivo")
+                        .into_response()
+                }
             };
 
             let mut bytes_written = 0;
@@ -59,7 +64,11 @@ pub async fn submit_mobile_scan(
                         if &header_buf[0..2] != b"PK" {
                             drop(file);
                             let _ = tokio::fs::remove_dir_all(&temp_dir).await;
-                            return (StatusCode::BAD_REQUEST, "Firma de archivo inválida (no es un ZIP/APK/IPA)").into_response();
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                "Firma de archivo inválida (no es un ZIP/APK/IPA)",
+                            )
+                                .into_response();
                         }
                         magic_checked = true;
                     }
@@ -69,16 +78,28 @@ pub async fn submit_mobile_scan(
                 if bytes_written > 500 * 1024 * 1024 {
                     drop(file);
                     let _ = tokio::fs::remove_dir_all(&temp_dir).await;
-                    return (StatusCode::PAYLOAD_TOO_LARGE, "Archivo excede límite de 500MB").into_response();
+                    return (
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "Archivo excede límite de 500MB",
+                    )
+                        .into_response();
                 }
 
                 if file.write_all(&chunk).await.is_err() {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, "Error escribiendo archivo").into_response();
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Error escribiendo archivo",
+                    )
+                        .into_response();
                 }
             }
 
             if file.flush().await.is_err() {
-                return (StatusCode::INTERNAL_SERVER_ERROR, "Error sincronizando archivo").into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Error sincronizando archivo",
+                )
+                    .into_response();
             }
 
             if bytes_written == 0 {
@@ -121,6 +142,10 @@ pub async fn submit_mobile_scan(
             Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "Engine not ready").into_response(),
         }
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, "Mission channel not configured").into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Mission channel not configured",
+        )
+            .into_response()
     }
 }

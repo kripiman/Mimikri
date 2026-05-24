@@ -1,7 +1,7 @@
+use super::types::{AdaptiveContext, CapabilityGap, RouteLevel};
+use crate::models::{AIAnalysis, Finding, TargetHost};
 use anyhow::Result;
 use async_trait::async_trait;
-use crate::models::{Finding, AIAnalysis, TargetHost};
-use super::types::{CapabilityGap, AdaptiveContext, RouteLevel};
 
 pub struct InferenceConfig<'a> {
     pub finding: &'a Finding,
@@ -26,5 +26,8 @@ pub struct DecisionConfig<'a> {
 pub trait LlmClient: Send + Sync {
     async fn analyze(&self, config: InferenceConfig<'_>) -> Result<AIAnalysis>;
 
-    async fn decide_action(&self, config: DecisionConfig<'_>) -> Result<Option<(String, serde_json::Value)>>;
+    async fn decide_action(
+        &self,
+        config: DecisionConfig<'_>,
+    ) -> Result<Option<(String, serde_json::Value)>>;
 }

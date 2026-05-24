@@ -1,7 +1,7 @@
-use crate::models::{TargetHost, ScanMetadata};
 use super::DataSink;
+use crate::models::{ScanMetadata, TargetHost};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
 use tracing::info;
 
 /// SOVEREIGN: Decentralized DataSink using NATS JetStream for high-availability findings.
@@ -14,9 +14,10 @@ impl NatsSink {
     /// Connects to NATS and returns a new NatsSink.
     pub async fn new(url: &str, subject_prefix: &str) -> Result<Self> {
         info!("🔱 SOVEREIGN: Connecting to NATS Mesh at {}...", url);
-        let client = async_nats::connect(url).await
+        let client = async_nats::connect(url)
+            .await
             .context("Failed to connect to NATS for decentralized sink")?;
-        
+
         Ok(Self {
             client,
             subject_prefix: subject_prefix.to_string(),
@@ -27,24 +28,28 @@ impl NatsSink {
 #[async_trait]
 impl DataSink for NatsSink {
     async fn write(&mut self, target: &TargetHost) -> Result<()> {
-        let payload = serde_json::to_vec(target)
-            .context("Failed to serialize TargetHost for NATS")?;
-        
+        let payload =
+            serde_json::to_vec(target).context("Failed to serialize TargetHost for NATS")?;
+
         let subject = format!("{}.findings.{}", self.subject_prefix, target.host);
-        self.client.publish(subject, payload.into()).await
+        self.client
+            .publish(subject, payload.into())
+            .await
             .context("Failed to publish finding to NATS")?;
-            
+
         Ok(())
     }
 
     async fn write_metadata(&mut self, metadata: &ScanMetadata) -> Result<()> {
-        let payload = serde_json::to_vec(metadata)
-            .context("Failed to serialize ScanMetadata for NATS")?;
-            
+        let payload =
+            serde_json::to_vec(metadata).context("Failed to serialize ScanMetadata for NATS")?;
+
         let subject = format!("{}.control.metadata", self.subject_prefix);
-        self.client.publish(subject, payload.into()).await
+        self.client
+            .publish(subject, payload.into())
+            .await
             .context("Failed to publish metadata to NATS")?;
-            
+
         Ok(())
     }
 

@@ -27,7 +27,6 @@ impl Default for BkTree {
 }
 
 impl BkTree {
-
     pub fn len(&self) -> usize {
         self.len
     }
@@ -119,7 +118,10 @@ impl BkTree {
 
     fn find_any_node(node: &BkNode, query: &str, threshold: u32, depth: usize) -> bool {
         if depth > MAX_DEPTH {
-            warn!("⚠️ BK-Tree: MAX_DEPTH {} exceeded at find — bailing out.", MAX_DEPTH);
+            warn!(
+                "⚠️ BK-Tree: MAX_DEPTH {} exceeded at find — bailing out.",
+                MAX_DEPTH
+            );
             return false;
         }
 
@@ -175,7 +177,6 @@ impl Default for SimHashBkTree {
 }
 
 impl SimHashBkTree {
-
     pub fn len(&self) -> usize {
         self.len
     }
@@ -240,7 +241,12 @@ impl SimHashBkTree {
         }
     }
 
-    fn find_similar_node(node: &SimHashBkNode, query: u64, threshold: u32, depth: usize) -> Option<usize> {
+    fn find_similar_node(
+        node: &SimHashBkNode,
+        query: u64,
+        threshold: u32,
+        depth: usize,
+    ) -> Option<usize> {
         if depth > MAX_DEPTH {
             return None;
         }
@@ -283,7 +289,10 @@ mod tests {
     fn empty_tree_find_returns_false() {
         let tree = test_tree_with_mock();
         // Any query on empty tree should return false
-        assert!(!tree.find_any_within("T1BF12A30000000000000000000000000000000000000000000000000000000000000000", 30));
+        assert!(!tree.find_any_within(
+            "T1BF12A30000000000000000000000000000000000000000000000000000000000000000",
+            30
+        ));
     }
 
     #[test]
@@ -300,7 +309,8 @@ mod tests {
         // Real TLSH hashes from known strings — using a placeholder format
         // These will return false from calculate_distance if tlsh_fixed can't parse them
         // but insert() still increments root.
-        let dummy_hash = "T1BF000000000000000000000000000000000000000000000000000000000000000000000".to_string();
+        let dummy_hash =
+            "T1BF000000000000000000000000000000000000000000000000000000000000000000000".to_string();
         let result = tree.insert(dummy_hash, 0);
         // Root insert always succeeds
         assert!(result);
@@ -310,7 +320,8 @@ mod tests {
     #[test]
     fn d0_guard_prevents_duplicate_index() {
         let mut tree = BkTree::new();
-        let hash = "T1BF000000000000000000000000000000000000000000000000000000000000000000000".to_string();
+        let hash =
+            "T1BF000000000000000000000000000000000000000000000000000000000000000000000".to_string();
         tree.insert(hash.clone(), 0);
         // Inserting same hash again: calculate_distance returns Some(0) or None
         // Either way the second insert should not increment len beyond 1 OR insert fails
@@ -359,9 +370,9 @@ mod tests {
         let h1 = 0b10101010u64;
         let h2 = 0b10101011u64; // distance 1
         let h3 = 0b11111111u64; // distance 4 from h1
-        
+
         tree.insert(h1, 42); // Use 42 as finding index
-        
+
         assert_eq!(tree.find_similar_within(h1, 0), Some(42));
         assert_eq!(tree.find_similar_within(h2, 1), Some(42));
         assert!(tree.find_similar_within(h2, 0).is_none());

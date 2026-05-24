@@ -1,15 +1,19 @@
-use reqwest::{Client, Proxy, header::HeaderValue};
+use super::manager::ProxyManager;
+use crate::utils::config::ProxyMode;
+use anyhow::{Context, Result};
+use reqwest::{header::HeaderValue, Client, Proxy};
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
-use anyhow::{Result, Context};
-use tracing::{info, error};
-use crate::utils::config::ProxyMode;
-use super::manager::ProxyManager;
 use tokio_socks::tcp::Socks5Stream;
+use tracing::{error, info};
 
 impl ProxyManager {
     /// Internal method to lazily build a reqwest::Client for a specific proxy
-    pub(crate) fn build_client(&self, proxy_str: Option<&str>, user_agent: String) -> Result<Client> {
+    pub(crate) fn build_client(
+        &self,
+        proxy_str: Option<&str>,
+        user_agent: String,
+    ) -> Result<Client> {
         let mut builder = reqwest::Client::builder()
             .user_agent(user_agent)
             .default_headers({
@@ -33,14 +37,21 @@ impl ProxyManager {
             let proxy = Proxy::all(p_str).context("Invalid proxy URL")?;
             builder = builder.proxy(proxy);
         }
-            
+
         builder.build().context("Failed to build reqwest client")
     }
 
     /// Build a host-pinned client for a specific proxy
-    pub(crate) fn build_client_pinned(&self, proxy_str: &str, host: &str, ip: IpAddr, port: u16, user_agent: String) -> Result<Client> {
+    pub(crate) fn build_client_pinned(
+        &self,
+        proxy_str: &str,
+        host: &str,
+        ip: IpAddr,
+        port: u16,
+        user_agent: String,
+    ) -> Result<Client> {
         let proxy = Proxy::all(proxy_str).context("Invalid proxy URL")?;
-        
+
         let client = reqwest::Client::builder()
             .proxy(proxy)
             .user_agent(user_agent)
@@ -63,52 +74,62 @@ impl ProxyManager {
             .timeout(Duration::from_secs(15))
             .build()
             .context("Failed to build host-pinned reqwest client for proxy")?;
-            
+
         Ok(client)
     }
 
-    pub fn configure_client_builder(&self, mut builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder> {
+    pub fn configure_client_builder(
+        &self,
+        mut builder: reqwest::ClientBuilder,
+    ) -> Result<reqwest::ClientBuilder> {
         if self.proxy_mode == ProxyMode::None {
             return Ok(builder);
         }
 
-        let proxy_url = self.pick_best_proxy()
+        let proxy_url = self
+            .pick_best_proxy()
             .context("V14.1 OPSEC Violation: No proxy available for client configuration.")?;
-        
+
         let proxy = Proxy::all(proxy_url).context("Invalid proxy URL")?;
         builder = builder.proxy(proxy);
-        
+
         Ok(builder)
     }
 
-    pub fn configure_stealth_builder(&self, builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder> {
+    pub fn configure_stealth_builder(
+        &self,
+        builder: reqwest::ClientBuilder,
+    ) -> Result<reqwest::ClientBuilder> {
         self.configure_client_builder(builder)
     }
 
     pub fn get_client(&self, host: &str) -> Option<(String, Client)> {
         if self.proxy_mode == ProxyMode::None {
-             let ua = self.identity_cache.get(host)
-                .unwrap_or_else(|| {
-                    let picked = self.pick_user_agent();
-                    self.identity_cache.insert(host.to_string(), picked.clone());
-                    picked
-                });
-             return self.build_client(None, ua).ok().map(|c| ("direct".to_string(), c));
-        }
-
-        if self.is_empty() { return None; }
-
-        let p_url = self.pick_best_proxy()?;
-        
-        let ua = self.identity_cache.get(host)
-            .unwrap_or_else(|| {
+            let ua = self.identity_cache.get(host).unwrap_or_else(|| {
                 let picked = self.pick_user_agent();
                 self.identity_cache.insert(host.to_string(), picked.clone());
                 picked
             });
+            return self
+                .build_client(None, ua)
+                .ok()
+                .map(|c| ("direct".to_string(), c));
+        }
+
+        if self.is_empty() {
+            return None;
+        }
+
+        let p_url = self.pick_best_proxy()?;
+
+        let ua = self.identity_cache.get(host).unwrap_or_else(|| {
+            let picked = self.pick_user_agent();
+            self.identity_cache.insert(host.to_string(), picked.clone());
+            picked
+        });
 
         let cache_key = format!("{}:{}", p_url, ua);
-        
+
         if let Some(client) = self.clients.get(&cache_key) {
             return Some((p_url, client));
         }
@@ -130,58 +151,70 @@ impl ProxyManager {
     }
 
     pub fn get_localhost_client(&self, host: &str) -> Result<(String, Client)> {
-        let ua = self.identity_cache.get(host)
-            .unwrap_or_else(|| {
-                let picked = self.pick_user_agent();
-                self.identity_cache.insert(host.to_string(), picked.clone());
-                picked
-            });
+        let ua = self.identity_cache.get(host).unwrap_or_else(|| {
+            let picked = self.pick_user_agent();
+            self.identity_cache.insert(host.to_string(), picked.clone());
+            picked
+        });
 
         let client = self.build_client(None, ua.clone())?;
         Ok(("localhost".to_string(), client))
     }
 
     pub fn get_client_fail_closed(&self, host: &str) -> Result<(String, Client)> {
-        self.get_client(host)
-            .context(format!("V13 OPSEC Violation: No proxy available for host {}. Aborting to prevent leak.", host))
+        self.get_client(host).context(format!(
+            "V13 OPSEC Violation: No proxy available for host {}. Aborting to prevent leak.",
+            host
+        ))
     }
 
-    pub async fn tcp_connect_proxied(&self, target_host: &str, target_port: u16) -> Result<tokio::net::TcpStream> {
-        let proxy_url = self.get_best_socks_url()
+    pub async fn tcp_connect_proxied(
+        &self,
+        target_host: &str,
+        target_port: u16,
+    ) -> Result<tokio::net::TcpStream> {
+        let proxy_url = self
+            .get_best_socks_url()
             .context("V13 OPSEC Violation: No SOCKS5 proxy available for TCP connection.")?;
-        
-        let proxy_addr = proxy_url.strip_prefix("socks5h://")
+
+        let proxy_addr = proxy_url
+            .strip_prefix("socks5h://")
             .or_else(|| proxy_url.strip_prefix("socks5://"))
             .unwrap_or(&proxy_url);
-        
+
         let proxy_sock_addr: SocketAddr = if proxy_addr.contains(':') {
             proxy_addr.parse()?
         } else {
             format!("{}:1080", proxy_addr).parse()?
         };
 
-        info!("🛡️ V13: Routing TCP connection to {}:{} via {}", target_host, target_port, proxy_addr);
-        
-        let stream = Socks5Stream::connect(proxy_sock_addr, (target_host, target_port)).await
+        info!(
+            "🛡️ V13: Routing TCP connection to {}:{} via {}",
+            target_host, target_port, proxy_addr
+        );
+
+        let stream = Socks5Stream::connect(proxy_sock_addr, (target_host, target_port))
+            .await
             .map_err(|e| anyhow::anyhow!("SOCKS5 Handshake failed: {}", e))?;
-        
+
         Ok(stream.into_inner())
     }
 
     pub fn get_client_pinned(&self, host: &str, ip: IpAddr, port: u16) -> Option<(String, Client)> {
-        if self.is_empty() { return None; }
+        if self.is_empty() {
+            return None;
+        }
 
         let p_url = self.pick_best_proxy()?;
-        
-        let ua = self.identity_cache.get(host)
-            .unwrap_or_else(|| {
-                let picked = self.pick_user_agent();
-                self.identity_cache.insert(host.to_string(), picked.clone());
-                picked
-            });
+
+        let ua = self.identity_cache.get(host).unwrap_or_else(|| {
+            let picked = self.pick_user_agent();
+            self.identity_cache.insert(host.to_string(), picked.clone());
+            picked
+        });
 
         let cache_key = format!("{}:{}:{}:{}:{}", p_url, host, ip, port, ua);
-        
+
         if let Some(client) = self.clients.get(&cache_key) {
             return Some((p_url, client));
         }
@@ -198,7 +231,12 @@ impl ProxyManager {
         }
     }
 
-    pub fn get_stealth_client_pinned(&self, host: &str, ip: IpAddr, port: u16) -> Option<(String, reqwest::Client)> {
+    pub fn get_stealth_client_pinned(
+        &self,
+        host: &str,
+        ip: IpAddr,
+        port: u16,
+    ) -> Option<(String, reqwest::Client)> {
         self.get_client_pinned(host, ip, port)
     }
 }

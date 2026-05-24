@@ -1,11 +1,13 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category, TargetType, PLUGIN_GF, FINDING_GF_PATTERN};
+use crate::models::{
+    Category, Finding, Severity, TargetHost, TargetType, FINDING_GF_PATTERN, PLUGIN_GF,
+};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::info;
 
 pub struct GfScanner {
     binary_path: String,
@@ -20,9 +22,7 @@ impl Default for GfScanner {
 impl GfScanner {
     pub fn new() -> Self {
         let path = detect_tool("gf");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -35,7 +35,9 @@ impl ScannerPlugin for GfScanner {
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "Grep-based pattern discovery for security audits (SSRF, LFI, RCE, Credentials).".to_string(),
+            description:
+                "Grep-based pattern discovery for security audits (SSRF, LFI, RCE, Credentials)."
+                    .to_string(),
             target_type: TargetType::Web,
             risk_level: RiskLevel::Safe,
             layer: crate::core::capability_layer::ScanLayer::Scanning,
@@ -47,7 +49,9 @@ impl ScannerPlugin for GfScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -63,7 +67,15 @@ impl ScannerPlugin for GfScanner {
 
         // Gf usually works on files or stdin.
         // For professional reconnaissance, we'll scan various patterns if they are available.
-        let patterns = vec!["ssrf".to_string(), "sqli".to_string(), "lfi".to_string(), "rce".to_string(), "debug-pages".to_string(), "idors".to_string(), "interestingparams".to_string()];
+        let patterns = vec![
+            "ssrf".to_string(),
+            "sqli".to_string(),
+            "lfi".to_string(),
+            "rce".to_string(),
+            "debug-pages".to_string(),
+            "idors".to_string(),
+            "interestingparams".to_string(),
+        ];
         let mut findings = Vec::new();
 
         for pattern in patterns {
@@ -71,21 +83,23 @@ impl ScannerPlugin for GfScanner {
             // For now, we'll simulate the execution. If we had a discovery-aggregator, we'd use it.
             // Professional approach: gf is better used as a post-discovery hook.
             // Here we just implement the wrapper.
-            
+
             let mut cmd = Command::new(&self.binary_path);
             cmd.arg(&pattern)
-               .stdin(Stdio::null())
-               .stdout(Stdio::piped())
-               .stderr(Stdio::null());
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
 
-            // Since we don't have a "gathered_urls" file yet in this context, 
+            // Since we don't have a "gathered_urls" file yet in this context,
             // the plugin will be safe but potentially empty until discovery runs.
             let output = cmd.output().await.context("Failed to execute gf")?;
-            
+
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
-                if line.trim().is_empty() { continue; }
-                
+                if line.trim().is_empty() {
+                    continue;
+                }
+
                 findings.push(Finding::new(
                     FINDING_GF_PATTERN,
                     Category::Recon,
@@ -94,7 +108,7 @@ impl ScannerPlugin for GfScanner {
                     serde_json::json!({
                         "pattern": pattern.clone(),
                         "line": line
-                    })
+                    }),
                 ));
             }
         }

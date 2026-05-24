@@ -1,13 +1,13 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category};
 use crate::core::capability_layer::ScanLayer;
-use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
-use anyhow::Result;
-use tracing::{info, warn};
-use tokio::process::Command;
-use std::process::Stdio;
 use crate::models::constants::*;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
+use crate::utils::tool_detection::detect_tool;
+use anyhow::Result;
+use async_trait::async_trait;
+use std::process::Stdio;
+use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct WcdScanner {
     binary_path: String,
@@ -23,9 +23,7 @@ impl WcdScanner {
     pub fn new() -> Self {
         // We'll use httpx as a backend for header analysis
         let path = detect_tool("httpx");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -63,7 +61,7 @@ impl ScannerPlugin for WcdScanner {
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("WcdScanner: scanning {}", target.host);
-        
+
         if !self.check_dependencies().await.unwrap_or(false) {
             warn!("WcdScanner: httpx required for WCD scanning. Skipping.");
             return Ok(Vec::new());
@@ -88,39 +86,58 @@ impl ScannerPlugin for WcdScanner {
         ];
 
         for f in target.findings.iter() {
-             if let Some(ev) = &f.evidence.primary {
-                 if let Some(path) = ev.data.get("path").and_then(|v| v.as_str()) {
-                     if !path.contains(".") && path.len() > 1 { paths_to_probe.push(path.to_string()); }
-                 }
-             }
+            if let Some(ev) = &f.evidence.primary {
+                if let Some(path) = ev.data.get("path").and_then(|v| v.as_str()) {
+                    if !path.contains(".") && path.len() > 1 {
+                        paths_to_probe.push(path.to_string());
+                    }
+                }
+            }
         }
         paths_to_probe.sort();
         paths_to_probe.dedup();
 
         // 2. Perform probing with static extensions
         let extensions = [".css", ".jpg", ".js", ".v14"];
-        
+
         for path in paths_to_probe.into_iter().take(15) {
-            let normalized_path = if path.starts_with('/') { path } else { format!("/{}", path) };
+            let normalized_path = if path.starts_with('/') {
+                path
+            } else {
+                format!("/{}", path)
+            };
             let target_path = format!("{}{}", base_url.trim_end_matches('/'), normalized_path);
-            
+
             for ext in &extensions {
                 let probe_url = format!("{}{}", target_path, ext);
-                
+
                 let output_res = tokio::time::timeout(
                     std::time::Duration::from_secs(10),
                     Command::new(&self.binary_path)
-                        .args(["-u", &probe_url, "-silent", "-status-code", "-include-response-headers"])
+                        .args([
+                            "-u",
+                            &probe_url,
+                            "-silent",
+                            "-status-code",
+                            "-include-response-headers",
+                        ])
                         .stdin(Stdio::null())
                         .stdout(Stdio::piped())
                         .stderr(Stdio::null())
                         .output(),
-                ).await;
+                )
+                .await;
 
                 let output = match output_res {
                     Ok(Ok(o)) => o,
-                    Ok(Err(e)) => { warn!("WcdScanner: httpx error for {}: {}", probe_url, e); continue; }
-                    Err(_) => { warn!("WcdScanner: timeout for {}", probe_url); continue; }
+                    Ok(Err(e)) => {
+                        warn!("WcdScanner: httpx error for {}: {}", probe_url, e);
+                        continue;
+                    }
+                    Err(_) => {
+                        warn!("WcdScanner: timeout for {}", probe_url);
+                        continue;
+                    }
                 };
 
                 if output.status.success() {
@@ -138,7 +155,7 @@ impl ScannerPlugin for WcdScanner {
                                 "evidence_headers": stdout.trim(),
                             })
                         ).with_tactical_path("Verify if authenticated sensitive data is cached when accessed with static extensions. This could lead to account takeover or PII leakage via shared caches (CDN)."));
-                        break; 
+                        break;
                     }
                 }
             }

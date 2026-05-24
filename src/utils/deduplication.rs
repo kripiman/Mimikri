@@ -1,10 +1,10 @@
+use crate::models::Finding;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
-use sha2::{Sha256, Digest};
-use crate::models::Finding;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tokio::sync::OnceCell;
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// V14.2 Local Deduplication: in-memory session cache using SHA-256 identity hashes.
 /// Key: SHA256(finding.id + matched_at), Value: first_seen timestamp
@@ -23,7 +23,7 @@ impl Default for DeduplicationEngine {
 
 impl DeduplicationEngine {
     pub fn new() -> Self {
-        Self { 
+        Self {
             seen_hashes: DashMap::new(),
             pool: OnceCell::new(),
         }
@@ -32,15 +32,17 @@ impl DeduplicationEngine {
     /// Initializes the engine with a persistent SQLite pool and loads existing hashes.
     pub async fn init(pool: PgPool) -> anyhow::Result<()> {
         let engine = &*ENGINE;
-        
-        // Load existing hashes from DB
-        let rows: Vec<(Vec<u8>, i64)> = sqlx::query_as(
-            "SELECT finding_hash, first_seen FROM deduplication"
-        )
-        .fetch_all(&pool)
-        .await?;
 
-        info!("🛡️ V14.2 DEDUPE: Loading {} persistent hashes from SQLite", rows.len());
+        // Load existing hashes from DB
+        let rows: Vec<(Vec<u8>, i64)> =
+            sqlx::query_as("SELECT finding_hash, first_seen FROM deduplication")
+                .fetch_all(&pool)
+                .await?;
+
+        info!(
+            "🛡️ V14.2 DEDUPE: Loading {} persistent hashes from SQLite",
+            rows.len()
+        );
 
         for (hash_vec, first_seen) in rows {
             if let Ok(hash) = hash_vec.try_into() {
@@ -55,7 +57,10 @@ impl DeduplicationEngine {
     /// Returns true if this finding was already seen this session or recorded in DB.
     /// MUST be called from within a Tokio async context (uses tokio::spawn internally).
     pub fn is_duplicate(finding: &Finding) -> bool {
-        let matched_at = finding.evidence.primary.as_ref()
+        let matched_at = finding
+            .evidence
+            .primary
+            .as_ref()
             .and_then(|e| e.data.get("matched_at"))
             .map(|v| v.to_string())
             .unwrap_or_default();

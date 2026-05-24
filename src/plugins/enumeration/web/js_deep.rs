@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, RiskLevel, TargetType};
-use crate::models::{TargetHost, Finding, Severity, Category};
 use crate::core::capability_layer::ScanLayer;
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
 use anyhow::Result;
-use tracing::info;
-use tokio::process::Command;
+use async_trait::async_trait;
 use std::process::Stdio;
+use tokio::process::Command;
+use tracing::info;
 
 // SubJS: Extract JS files from URLs
 pub struct SubJSScanner {
@@ -15,7 +15,9 @@ pub struct SubJSScanner {
 
 impl SubJSScanner {
     pub fn new() -> Self {
-        Self { binary_path: detect_tool("subjs") }
+        Self {
+            binary_path: detect_tool("subjs"),
+        }
     }
 }
 
@@ -27,7 +29,9 @@ impl Default for SubJSScanner {
 
 #[async_trait]
 impl ScannerPlugin for SubJSScanner {
-    fn name(&self) -> &'static str { "subjs" }
+    fn name(&self) -> &'static str {
+        "subjs"
+    }
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
@@ -43,7 +47,9 @@ impl ScannerPlugin for SubJSScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("webapp".to_string()),
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::JsAnalysis]
@@ -68,8 +74,10 @@ impl ScannerPlugin for SubJSScanner {
 
         let content = String::from_utf8_lossy(&output.stdout);
         let urls: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        
-        if urls.is_empty() { return Ok(vec![]); }
+
+        if urls.is_empty() {
+            return Ok(vec![]);
+        }
 
         Ok(vec![Finding::new(
             "JS-FILES-DISCOVERED",
@@ -81,7 +89,7 @@ impl ScannerPlugin for SubJSScanner {
                 "count": urls.len(),
                 "js_urls": urls,
                 "tool": "subjs"
-            })
+            }),
         )])
     }
 }
@@ -93,7 +101,9 @@ pub struct RetireScanner {
 
 impl RetireScanner {
     pub fn new() -> Self {
-        Self { binary_path: detect_tool("retire") }
+        Self {
+            binary_path: detect_tool("retire"),
+        }
     }
 }
 
@@ -105,11 +115,15 @@ impl Default for RetireScanner {
 
 #[async_trait]
 impl ScannerPlugin for RetireScanner {
-    fn name(&self) -> &'static str { "retire" }
+    fn name(&self) -> &'static str {
+        "retire"
+    }
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
-            description: "Scanner detecting the use of JavaScript libraries with known vulnerabilities".to_string(),
+            description:
+                "Scanner detecting the use of JavaScript libraries with known vulnerabilities"
+                    .to_string(),
             target_type: TargetType::Web,
             risk_level: RiskLevel::Safe,
             layer: ScanLayer::Scanning,
@@ -121,7 +135,9 @@ impl ScannerPlugin for RetireScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("webapp".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::JsAnalysis]
@@ -131,7 +147,7 @@ impl ScannerPlugin for RetireScanner {
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("RetireScanner: scanning JS libraries for {}", target.host);
-        
+
         let output = Command::new(&self.binary_path)
             .arg("--js")
             .arg("--url")
@@ -145,11 +161,16 @@ impl ScannerPlugin for RetireScanner {
             .await?;
 
         let content = String::from_utf8_lossy(&output.stdout);
-        if content.trim().is_empty() { return Ok(vec![]); }
+        if content.trim().is_empty() {
+            return Ok(vec![]);
+        }
 
-        let json_res: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::json!({"raw": content}));
-        
-        if content.to_lowercase().contains("vulnerability") || content.to_lowercase().contains("vulnerable") {
+        let json_res: serde_json::Value =
+            serde_json::from_str(&content).unwrap_or(serde_json::json!({"raw": content}));
+
+        if content.to_lowercase().contains("vulnerability")
+            || content.to_lowercase().contains("vulnerable")
+        {
             return Ok(vec![Finding::new(
                 "VULNERABLE-JS-LIBRARY",
                 Category::Vulnerability,
@@ -159,7 +180,7 @@ impl ScannerPlugin for RetireScanner {
                     "host": target.host,
                     "report": json_res,
                     "tool": "retire"
-                })
+                }),
             )]);
         }
 
@@ -174,7 +195,9 @@ pub struct SourceMapperScanner {
 
 impl SourceMapperScanner {
     pub fn new() -> Self {
-        Self { binary_path: detect_tool("sourcemapper") }
+        Self {
+            binary_path: detect_tool("sourcemapper"),
+        }
     }
 }
 
@@ -186,7 +209,9 @@ impl Default for SourceMapperScanner {
 
 #[async_trait]
 impl ScannerPlugin for SourceMapperScanner {
-    fn name(&self) -> &'static str { "sourcemapper" }
+    fn name(&self) -> &'static str {
+        "sourcemapper"
+    }
     fn metadata(&self) -> PluginMetadata {
         PluginMetadata {
             name: self.name().to_string(),
@@ -202,7 +227,9 @@ impl ScannerPlugin for SourceMapperScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("webapp".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::JsAnalysis]
@@ -211,13 +238,16 @@ impl ScannerPlugin for SourceMapperScanner {
         Ok(crate::utils::check_tool_availability("sourcemapper").await)
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("SourceMapperScanner: looking for source maps for {}", target.host);
-        
+        info!(
+            "SourceMapperScanner: looking for source maps for {}",
+            target.host
+        );
+
         let output = Command::new(&self.binary_path)
             .arg("-u")
             .arg(format!("https://{}", target.host))
             .arg("-o")
-            .arg("/tmp/sourcemapper_out") 
+            .arg("/tmp/sourcemapper_out")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -225,8 +255,9 @@ impl ScannerPlugin for SourceMapperScanner {
             .await?;
 
         let content = String::from_utf8_lossy(&output.stdout);
-        if content.to_lowercase().contains("extracted") || content.to_lowercase().contains("found") {
-             return Ok(vec![Finding::new(
+        if content.to_lowercase().contains("extracted") || content.to_lowercase().contains("found")
+        {
+            return Ok(vec![Finding::new(
                 "JS-SOURCEMAP-EXTRACTED",
                 Category::Recon,
                 Severity::Low,
@@ -235,7 +266,7 @@ impl ScannerPlugin for SourceMapperScanner {
                     "host": target.host,
                     "tool": "sourcemapper",
                     "note": "Source maps were found and extracted. Check /tmp/sourcemapper_out"
-                })
+                }),
             )]);
         }
 

@@ -1,6 +1,6 @@
-mod schema;
-mod parser;
 mod bridge;
+mod parser;
+mod schema;
 
-pub use schema::{BlackArchTool, ToolSchema, FlagSchema, ResourceCost};
 pub use bridge::BlackArchBridge;
+pub use schema::{BlackArchTool, FlagSchema, ResourceCost, ToolSchema};

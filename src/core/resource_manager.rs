@@ -1,12 +1,12 @@
-use sysinfo::System;
 use std::sync::{Arc, Mutex};
+use sysinfo::System;
 use tracing::{info, warn};
 
 #[derive(Clone)]
 pub struct SysResourceManager {
     _sys: Arc<Mutex<System>>,
     pub total_ram_mb: u64,
-    pub strict_threshold_mb: u64, 
+    pub strict_threshold_mb: u64,
     available_ram_mb: Arc<std::sync::atomic::AtomicU64>,
 }
 
@@ -22,14 +22,19 @@ impl SysResourceManager {
         sys.refresh_memory();
         // sysinfo 0.30+ uses bytes exclusively
         let total_ram_mb = sys.total_memory() / 1024 / 1024;
-        let available_ram_mb = Arc::new(std::sync::atomic::AtomicU64::new(sys.available_memory() / 1024 / 1024));
-        
+        let available_ram_mb = Arc::new(std::sync::atomic::AtomicU64::new(
+            sys.available_memory() / 1024 / 1024,
+        ));
+
         let threshold = std::env::var("SANDBOX_STRICT_RAM_MB")
             .unwrap_or_else(|_| "16384".to_string())
             .parse::<u64>()
             .unwrap_or(16384);
 
-        info!("🛡️ [SysResourceManager] Booting. Total RAM: {} MB. Strict Sandbox Threshold: {} MB", total_ram_mb, threshold);
+        info!(
+            "🛡️ [SysResourceManager] Booting. Total RAM: {} MB. Strict Sandbox Threshold: {} MB",
+            total_ram_mb, threshold
+        );
 
         let sys_arc = Arc::new(Mutex::new(sys));
         let sys_clone = sys_arc.clone();
@@ -42,7 +47,10 @@ impl SysResourceManager {
                 interval.tick().await;
                 let mut sys = sys_clone.lock().unwrap();
                 sys.refresh_memory();
-                avail_clone.store(sys.available_memory() / 1024 / 1024, std::sync::atomic::Ordering::Relaxed);
+                avail_clone.store(
+                    sys.available_memory() / 1024 / 1024,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
             }
         });
 
@@ -70,13 +78,15 @@ impl SysResourceManager {
     /// Actualiza la tabla de procesos y verifica si podemos destinar RAM.
     pub fn can_allocate(&self, req_mb: u64) -> bool {
         // PERF-02: Use atomic read instead of Mutex lock + refresh_memory in hot-path
-        let available_mb = self.available_ram_mb.load(std::sync::atomic::Ordering::Relaxed);
-        
+        let available_mb = self
+            .available_ram_mb
+            .load(std::sync::atomic::Ordering::Relaxed);
+
         if available_mb < req_mb {
-             warn!("⚠️ [SysResourceManager] OOM Protection Activated! Requested: {} MB, but only {} MB available.", req_mb, available_mb);
-             false
+            warn!("⚠️ [SysResourceManager] OOM Protection Activated! Requested: {} MB, but only {} MB available.", req_mb, available_mb);
+            false
         } else {
-             true
+            true
         }
     }
 }

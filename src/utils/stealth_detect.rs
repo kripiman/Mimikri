@@ -1,5 +1,5 @@
-use std::time::Duration;
 use reqwest::Client;
+use std::time::Duration;
 use tracing::info;
 
 /// Detects if the current process is running within Oracle Cloud (OCI).
@@ -12,8 +12,9 @@ pub async fn is_oracle_cloud() -> bool {
 
     // Oracle Cloud Metadata Service endpoint
     let url = "http://169.254.169.254/opc/v2/instance/";
-    
-    match client.get(url)
+
+    match client
+        .get(url)
         .header("Authorization", "Bearer Oracle")
         .send()
         .await

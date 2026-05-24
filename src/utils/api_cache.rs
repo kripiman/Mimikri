@@ -1,9 +1,9 @@
+use chrono::{DateTime, Utc};
+use serde::{de::DeserializeOwned, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
-use serde::{Serialize, de::DeserializeOwned};
-use sha2::{Sha256, Digest};
 use std::time::Duration;
-use tracing::{info, debug};
-use chrono::{Utc, DateTime};
+use tracing::{debug, info};
 
 use std::sync::OnceLock;
 
@@ -37,9 +37,15 @@ impl ApiCache {
         hex::encode(hasher.finalize())
     }
 
-    pub async fn get<T: DeserializeOwned>(&self, api: &str, target: &str, kind: &str, ttl: Duration) -> Option<T> {
+    pub async fn get<T: DeserializeOwned>(
+        &self,
+        api: &str,
+        target: &str,
+        kind: &str,
+        ttl: Duration,
+    ) -> Option<T> {
         let key = Self::generate_key(api, target, kind);
-        
+
         match sqlx::query("SELECT output, timestamp FROM plugin_cache WHERE cache_key = $1")
             .bind(&key)
             .fetch_optional(&self.pool)
@@ -49,7 +55,7 @@ impl ApiCache {
                 let timestamp: DateTime<Utc> = row.get("timestamp");
                 let now = Utc::now();
                 let age = now.signed_duration_since(timestamp);
-                
+
                 if age.num_seconds() > 0 && age.num_seconds() as u64 <= ttl.as_secs() {
                     let output: String = row.get("output");
                     match serde_json::from_str(&output) {
@@ -77,14 +83,14 @@ impl ApiCache {
 
     pub async fn put<T: Serialize>(&self, api: &str, target: &str, kind: &str, value: &T) {
         let key = Self::generate_key(api, target, kind);
-        
+
         match serde_json::to_string(value) {
             Ok(output) => {
                 let _ = sqlx::query(
                     r#"
-                    INSERT INTO plugin_cache (cache_key, output, timestamp) 
+                    INSERT INTO plugin_cache (cache_key, output, timestamp)
                     VALUES ($1, $2, CURRENT_TIMESTAMP)
-                    ON CONFLICT (cache_key) DO UPDATE 
+                    ON CONFLICT (cache_key) DO UPDATE
                     SET output = EXCLUDED.output, timestamp = CURRENT_TIMESTAMP
                     "#,
                 )

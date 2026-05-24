@@ -6,9 +6,11 @@ pub mod core_fields;
 pub mod enrichment;
 pub mod evidence;
 
-pub use classification::{Severity, Category, ConsolidationUrgency};
+pub use classification::{Category, ConsolidationUrgency, Severity};
 pub use core_fields::{CoreFinding, ExecutionContext};
-pub use enrichment::{AIAnalysis, FindingEnrichment, PocStrategy, ValidatedPoc, PocDefinition, TokenUsage};
+pub use enrichment::{
+    AIAnalysis, FindingEnrichment, PocDefinition, PocStrategy, TokenUsage, ValidatedPoc,
+};
 pub use evidence::{Evidence, EvidenceFile, FindingEvidence, ValidationMetadata, ValidationStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,15 +32,29 @@ impl Deref for Finding {
 }
 
 impl Finding {
-    pub fn builder(id: &str, category: Category, severity: Severity, description: &str) -> FindingBuilder {
+    pub fn builder(
+        id: &str,
+        category: Category,
+        severity: Severity,
+        description: &str,
+    ) -> FindingBuilder {
         FindingBuilder::new(id, category, severity, description)
     }
 
     pub fn pattern_signature(&self) -> String {
-        format!("{:?}:{:?}:{}", self.core.category, self.core.severity, self.core.id)
+        format!(
+            "{:?}:{:?}:{}",
+            self.core.category, self.core.severity, self.core.id
+        )
     }
 
-    pub fn new(id: &str, category: Category, severity: Severity, description: &str, evidence: serde_json::Value) -> Self {
+    pub fn new(
+        id: &str,
+        category: Category,
+        severity: Severity,
+        description: &str,
+        evidence: serde_json::Value,
+    ) -> Self {
         Self::builder(id, category, severity, description)
             .with_evidence(evidence)
             .build()
@@ -94,7 +110,12 @@ impl Finding {
         self
     }
 
-    pub fn with_execution_context(mut self, objective_id: &str, agent: &str, iteration: u32) -> Self {
+    pub fn with_execution_context(
+        mut self,
+        objective_id: &str,
+        agent: &str,
+        iteration: u32,
+    ) -> Self {
         self.context.objective_id = objective_id.to_string();
         self.context.agent = agent.to_string();
         self.context.iteration = iteration;
@@ -116,16 +137,26 @@ impl Finding {
         md.push_str(&format!("**ID**: `{}`  \n", self.core.id));
         md.push_str(&format!("**Severity**: **{:?}**  \n", self.core.severity));
         md.push_str(&format!("**Category**: `{:?}`  \n", self.core.category));
-        
+
         if let Some(score) = self.enrichment.cvss_score {
             md.push_str(&format!("**CVSS Score**: `{}`  \n", score));
         }
         if let Some(ref vector) = self.enrichment.cvss_vector {
-            md.push_str(&format!("**CVSS Vector**: `{}` (`{}`)  \n", vector, self.enrichment.cvss_version));
+            md.push_str(&format!(
+                "**CVSS Vector**: `{}` (`{}`)  \n",
+                vector, self.enrichment.cvss_version
+            ));
         }
-        
+
         if let Some(det) = self.context.detected {
-            md.push_str(&format!("**Status**: {}  \n", if det { "🔴 Detected" } else { "🟢 Not Detected" }));
+            md.push_str(&format!(
+                "**Status**: {}  \n",
+                if det {
+                    "🔴 Detected"
+                } else {
+                    "🟢 Not Detected"
+                }
+            ));
         }
 
         if let Some(ref urgency) = self.enrichment.consolidation_urgency {
@@ -136,7 +167,7 @@ impl Finding {
             };
             md.push_str(&format!("**Consolidation Urgency**: {}  \n", emoji));
         }
-        
+
         md.push_str("\n## Description\n\n");
         md.push_str(&self.core.description);
         md.push_str("\n\n");
@@ -144,7 +175,11 @@ impl Finding {
         if !self.enrichment.cwe.is_empty() {
             md.push_str("## CWE\n\n");
             for cwe in &self.enrichment.cwe {
-                md.push_str(&format!("- [{0}](https://cwe.mitre.org/data/definitions/{1}.html)\n", cwe, cwe.replace("CWE-", "")));
+                md.push_str(&format!(
+                    "- [{0}](https://cwe.mitre.org/data/definitions/{1}.html)\n",
+                    cwe,
+                    cwe.replace("CWE-", "")
+                ));
             }
             md.push('\n');
         }
@@ -169,16 +204,25 @@ impl Finding {
             md.push_str("| File Type | Path | SHA-256 | Collected At |\n");
             md.push_str("|---|---|---|---|\n");
             for file in &self.evidence.files {
-                let sha_short = if file.sha256.len() > 8 { &file.sha256[..8] } else { &file.sha256 };
-                md.push_str(&format!("| {} | `{}` | `{}` | {} |\n", 
-                    file.evidence_type, file.path, sha_short, file.collected_at));
+                let sha_short = if file.sha256.len() > 8 {
+                    &file.sha256[..8]
+                } else {
+                    &file.sha256
+                };
+                md.push_str(&format!(
+                    "| {} | `{}` | `{}` | {} |\n",
+                    file.evidence_type, file.path, sha_short, file.collected_at
+                ));
             }
             md.push('\n');
         }
 
         md.push_str("## Context\n\n");
         if !self.context.objective_id.is_empty() {
-            md.push_str(&format!("- **Objective**: `{}`\n", self.context.objective_id));
+            md.push_str(&format!(
+                "- **Objective**: `{}`\n",
+                self.context.objective_id
+            ));
         }
         if !self.context.agent.is_empty() {
             md.push_str(&format!("- **Agent**: `{}`\n", self.context.agent));
@@ -245,7 +289,12 @@ impl FindingBuilder {
         self
     }
 
-    pub fn with_execution_context(mut self, objective_id: &str, agent: &str, iteration: u32) -> Self {
+    pub fn with_execution_context(
+        mut self,
+        objective_id: &str,
+        agent: &str,
+        iteration: u32,
+    ) -> Self {
         self.context.objective_id = objective_id.to_string();
         self.context.agent = agent.to_string();
         self.context.iteration = iteration;

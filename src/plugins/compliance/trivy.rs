@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::{info, error};
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::{error, info};
 pub struct TrivyScanner {
     binary_path: String,
 }
@@ -18,9 +18,7 @@ impl Default for TrivyScanner {
 impl TrivyScanner {
     pub fn new() -> Self {
         let path = detect_tool("trivy");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 #[async_trait]
@@ -28,7 +26,7 @@ impl ScannerPlugin for TrivyScanner {
     fn name(&self) -> &'static str {
         "trivy"
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -43,7 +41,9 @@ impl ScannerPlugin for TrivyScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -52,7 +52,10 @@ impl ScannerPlugin for TrivyScanner {
         Ok(crate::utils::check_tool_availability("trivy").await)
     }
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("TrivyScanner: scanning {} for container/cloud vulnerabilities", target.host);
+        info!(
+            "TrivyScanner: scanning {} for container/cloud vulnerabilities",
+            target.host
+        );
         // Trivy can scan many things. Here we try a generic "config" scan or "vm" scan if applicable.
         // For a general target host, we might scan its filesystem or container images if we find them.
         let child = Command::new(&self.binary_path)
@@ -67,17 +70,26 @@ impl ScannerPlugin for TrivyScanner {
         let mut findings = Vec::new();
         match child {
             Ok(c) => {
-                let output = c.wait_with_output().await.context("Failed to wait for trivy")?;
+                let output = c
+                    .wait_with_output()
+                    .await
+                    .context("Failed to wait for trivy")?;
                 if output.status.success() {
                     let content = String::from_utf8_lossy(&output.stdout);
                     if let Ok(json_data) = serde_json::from_str::<serde_json::Value>(&content) {
-                        findings.push(Finding::new(
-                            "TRIVY-SCAN-RESULT",
-                            Category::Misconfiguration,
-                            Severity::Info,
-                            &format!("Cloud-native security scan completed for {}", target.host),
-                            json_data
-                        ).with_mitre_attack(vec!["T1584".to_string(), "T1613".to_string()]));
+                        findings.push(
+                            Finding::new(
+                                "TRIVY-SCAN-RESULT",
+                                Category::Misconfiguration,
+                                Severity::Info,
+                                &format!(
+                                    "Cloud-native security scan completed for {}",
+                                    target.host
+                                ),
+                                json_data,
+                            )
+                            .with_mitre_attack(vec!["T1584".to_string(), "T1613".to_string()]),
+                        );
                     }
                 }
             }

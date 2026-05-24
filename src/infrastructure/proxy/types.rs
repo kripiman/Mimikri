@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::utils::config::ProxyMode;
+use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

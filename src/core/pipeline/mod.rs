@@ -1,23 +1,23 @@
+use anyhow::{Context, Result};
+use futures::StreamExt;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-use anyhow::{Result, Context};
-use futures::StreamExt;
 
-use crate::plugins::{DiscoveryPlugin, ScannerPlugin};
-use crate::models::{TargetHost, Finding, Category, Severity, ScanMetadata};
-use crate::core::sink::DataSink;
-use crate::core::capability_layer::ScanLayerPolicy;
 use crate::core::approval_gate::ApprovalGate;
+use crate::core::capability_layer::ScanLayerPolicy;
 use crate::core::filter::FalsePositiveFilter;
-use crate::utils::{LivenessChecker, JitterSleep};
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
 use crate::core::orchestrator::OrchestratorConfig;
+use crate::core::sink::DataSink;
+use crate::models::{Category, Finding, ScanMetadata, Severity, TargetHost};
+use crate::plugins::{DiscoveryPlugin, ScannerPlugin};
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
+use crate::utils::{JitterSleep, LivenessChecker};
 
 pub mod builder;
-pub mod stages;
 pub mod enrichment;
+pub mod stages;
 
 pub use builder::PipelineBuilder;
 
@@ -45,10 +45,14 @@ pub struct Pipeline<M: ExecutorMode = crate::utils::executor::GhostMode> {
     pub(crate) policy: Arc<dyn crate::core::policy::PolicyProvider>,
     pub(crate) executor: Arc<StealthExecutor<M>>,
     pub(crate) strict_scope: bool,
-    #[cfg(feature = "sovereign")] pub(crate) sliver_ca_path: Option<String>,
-    #[cfg(feature = "sovereign")] pub(crate) sliver_cert_path: Option<String>,
-    #[cfg(feature = "sovereign")] pub(crate) sliver_key_path: Option<String>,
-    #[cfg(feature = "sovereign")] pub(crate) sliver_server_addr: Option<String>,
+    #[cfg(feature = "sovereign")]
+    pub(crate) sliver_ca_path: Option<String>,
+    #[cfg(feature = "sovereign")]
+    pub(crate) sliver_cert_path: Option<String>,
+    #[cfg(feature = "sovereign")]
+    pub(crate) sliver_key_path: Option<String>,
+    #[cfg(feature = "sovereign")]
+    pub(crate) sliver_server_addr: Option<String>,
 }
 
 impl<M: ExecutorMode> Pipeline<M> {
@@ -57,19 +61,21 @@ impl<M: ExecutorMode> Pipeline<M> {
     }
 
     pub fn new_minimal(
-        plugins: Arc<Vec<Box<dyn ScannerPlugin>>>, 
+        plugins: Arc<Vec<Box<dyn ScannerPlugin>>>,
         sandbox: Arc<crate::core::sandbox::SandboxDispatcher>,
         policy: Option<Arc<dyn crate::core::policy::PolicyProvider>>,
         memory_monitor: Option<Arc<crate::utils::memory_monitor::MemoryMonitor>>,
     ) -> Self {
-        let monitor = memory_monitor.unwrap_or_else(|| Arc::new(crate::utils::memory_monitor::MemoryMonitor::new(100, 200)));
+        let monitor = memory_monitor.unwrap_or_else(|| {
+            Arc::new(crate::utils::memory_monitor::MemoryMonitor::new(100, 200))
+        });
         let policy = policy.unwrap_or_else(|| Arc::new(crate::core::policy::StaticPolicy::new()));
-        
+
         Self {
             concurrency: 1,
             discovery_plugins: Arc::new(Vec::new()),
             plugins,
-            sink: None, 
+            sink: None,
             shutdown_token: CancellationToken::new(),
             liveness_checker: LivenessChecker::new(None, false),
             command_line: "minimal".to_string(),
@@ -89,18 +95,29 @@ impl<M: ExecutorMode> Pipeline<M> {
             policy: policy.clone(),
             executor: Arc::new(StealthExecutor::<M>::new(policy, None, false)),
             strict_scope: false,
-            #[cfg(feature = "sovereign")] sliver_ca_path: None,
-            #[cfg(feature = "sovereign")] sliver_cert_path: None,
-            #[cfg(feature = "sovereign")] sliver_key_path: None,
-            #[cfg(feature = "sovereign")] sliver_server_addr: None,
+            #[cfg(feature = "sovereign")]
+            sliver_ca_path: None,
+            #[cfg(feature = "sovereign")]
+            sliver_cert_path: None,
+            #[cfg(feature = "sovereign")]
+            sliver_key_path: None,
+            #[cfg(feature = "sovereign")]
+            sliver_server_addr: None,
         }
     }
 
-    pub async fn run(mut self, mut targets: futures::stream::BoxStream<'static, TargetHost>) -> Result<()> {
-        info!("🚀 Starting Pipeline with {} plugins...", self.plugins.len());
-        
+    pub async fn run(
+        mut self,
+        mut targets: futures::stream::BoxStream<'static, TargetHost>,
+    ) -> Result<()> {
+        info!(
+            "🚀 Starting Pipeline with {} plugins...",
+            self.plugins.len()
+        );
+
         let mut sink = self.sink.take().context("Pipeline: Sink already taken")?;
-        sink.write_metadata(&ScanMetadata::new(&self.command_line)).await?;
+        sink.write_metadata(&ScanMetadata::new(&self.command_line))
+            .await?;
 
         let channel_size = (self.concurrency * 2).clamp(4, 32);
         let (osint_tx, osint_rx) = mpsc::channel(channel_size);
@@ -112,20 +129,33 @@ impl<M: ExecutorMode> Pipeline<M> {
 
         // Discovery
         stages::discovery::spawn_discovery_stage(
-            osint_rx, liveness_tx.clone(), self.discovery_plugins.clone(), self.jitter.clone(), self.shutdown_token.clone()
+            osint_rx,
+            liveness_tx.clone(),
+            self.discovery_plugins.clone(),
+            self.jitter.clone(),
+            self.shutdown_token.clone(),
         );
-        
+
         let osint_token = self.shutdown_token.clone();
         tokio::spawn(async move {
             while let Some(t) = targets.next().await {
-                if osint_token.is_cancelled() { break; }
-                if osint_tx.send(t).await.is_err() { break; }
+                if osint_token.is_cancelled() {
+                    break;
+                }
+                if osint_tx.send(t).await.is_err() {
+                    break;
+                }
             }
         });
 
         // Liveness
         stages::liveness::spawn_liveness_stage(
-            liveness_rx, scan_tx.clone(), sink_tx.clone(), self.liveness_checker.clone(), self.concurrency, self.shutdown_token.clone()
+            liveness_rx,
+            scan_tx.clone(),
+            sink_tx.clone(),
+            self.liveness_checker.clone(),
+            self.concurrency,
+            self.shutdown_token.clone(),
         );
         drop(scan_tx);
 
@@ -183,27 +213,45 @@ impl<M: ExecutorMode> Pipeline<M> {
 
         // Sink
         stages::sink::run_sink_stage(sink, sink_rx, self.fp_filter.clone()).await?;
-        
+
         Ok(())
     }
 
-    pub async fn start_sink_stage(&mut self) -> Result<(mpsc::Sender<TargetHost>, tokio::task::JoinHandle<()>)> {
+    pub async fn start_sink_stage(
+        &mut self,
+    ) -> Result<(mpsc::Sender<TargetHost>, tokio::task::JoinHandle<()>)> {
         let sink = self.sink.take().context("Pipeline: Sink already taken")?;
         stages::sink::start_sink_stage(sink, &self.command_line, self.fp_filter.clone()).await
     }
 
-    pub async fn run_discovery(&self, target: &TargetHost, tx: mpsc::Sender<Finding>) -> Result<()> {
+    pub async fn run_discovery(
+        &self,
+        target: &TargetHost,
+        tx: mpsc::Sender<Finding>,
+    ) -> Result<()> {
         info!("Pipeline: Running discovery for {}", target.host);
         let mut join_set = tokio::task::JoinSet::new();
         for i in 0..self.discovery_plugins.len() {
             let plugins_clone = self.discovery_plugins.clone();
             let target_snapshot = target.clone();
-            join_set.spawn(async move { (plugins_clone[i].name().to_string(), plugins_clone[i].discover(&target_snapshot).await) });
+            join_set.spawn(async move {
+                (
+                    plugins_clone[i].name().to_string(),
+                    plugins_clone[i].discover(&target_snapshot).await,
+                )
+            });
         }
         while let Some(res) = join_set.join_next().await {
             if let Ok((name, Ok(subdomains))) = res {
-                for sub in subdomains { 
-                    tx.send(Finding::new("DISCOVERED_SUBDOMAIN", Category::Recon, Severity::Info, &format!("via {}", name), serde_json::json!({"sub":sub}))).await?; 
+                for sub in subdomains {
+                    tx.send(Finding::new(
+                        "DISCOVERED_SUBDOMAIN",
+                        Category::Recon,
+                        Severity::Info,
+                        &format!("via {}", name),
+                        serde_json::json!({"sub":sub}),
+                    ))
+                    .await?;
                 }
             }
         }
@@ -214,38 +262,53 @@ impl<M: ExecutorMode> Pipeline<M> {
         info!("Pipeline: Running active scans for {}", target.host);
         let (tx, rx) = mpsc::channel(1);
         let (out_tx, mut out_rx) = mpsc::channel(1);
-        
-        let mut orchestrator = crate::core::orchestrator::Orchestrator::new(crate::core::orchestrator::OrchestratorConfig {
-            plugins: self.plugins.clone(),
-            concurrency: self.concurrency,
-            layer_policy: self.layer_policy,
-            approval_gate: self.approval_gate.clone(),
-            blackarch_bridge: self.blackarch_bridge.clone(),
-            memory_monitor: self.memory_monitor.clone(),
-            sandbox: self.sandbox.clone(),
-            policy: self.policy.clone(),
-            executor: self.executor.clone(),
-            strict_scope: self.strict_scope,
-            feedback_tx: None,
-            db_pool: None,
-            current_scan_id: None,
-            inventory: None,
-            #[cfg(feature = "sovereign")] sliver_ca_path: self.sliver_ca_path.clone(),
-            #[cfg(feature = "sovereign")] sliver_cert_path: self.sliver_cert_path.clone(),
-            #[cfg(feature = "sovereign")] sliver_key_path: self.sliver_key_path.clone(),
-            #[cfg(feature = "sovereign")] sliver_server_addr: self.sliver_server_addr.clone(),
-        });
+
+        let mut orchestrator = crate::core::orchestrator::Orchestrator::new(
+            crate::core::orchestrator::OrchestratorConfig {
+                plugins: self.plugins.clone(),
+                concurrency: self.concurrency,
+                layer_policy: self.layer_policy,
+                approval_gate: self.approval_gate.clone(),
+                blackarch_bridge: self.blackarch_bridge.clone(),
+                memory_monitor: self.memory_monitor.clone(),
+                sandbox: self.sandbox.clone(),
+                policy: self.policy.clone(),
+                executor: self.executor.clone(),
+                strict_scope: self.strict_scope,
+                feedback_tx: None,
+                db_pool: None,
+                current_scan_id: None,
+                inventory: None,
+                #[cfg(feature = "sovereign")]
+                sliver_ca_path: self.sliver_ca_path.clone(),
+                #[cfg(feature = "sovereign")]
+                sliver_cert_path: self.sliver_cert_path.clone(),
+                #[cfg(feature = "sovereign")]
+                sliver_key_path: self.sliver_key_path.clone(),
+                #[cfg(feature = "sovereign")]
+                sliver_server_addr: self.sliver_server_addr.clone(),
+            },
+        );
 
         if self.swarm_mode {
             if let Some(router) = self.ai_router.clone() {
-                orchestrator = orchestrator.with_swarm_mode(true, self.max_tokens, router, self.proxy_manager.clone());
+                orchestrator = orchestrator.with_swarm_mode(
+                    true,
+                    self.max_tokens,
+                    router,
+                    self.proxy_manager.clone(),
+                );
             }
         }
-        
+
         let target_clone = target.clone();
-        tokio::spawn(async move { let _ = tx.send(target_clone).await; });
-        orchestrator.run(rx, out_tx, self.shutdown_token.clone()).await;
-        
+        tokio::spawn(async move {
+            let _ = tx.send(target_clone).await;
+        });
+        orchestrator
+            .run(rx, out_tx, self.shutdown_token.clone())
+            .await;
+
         if let Some(res) = out_rx.recv().await {
             Ok((*res.findings).clone())
         } else {
@@ -261,7 +324,11 @@ impl<M: ExecutorMode> Pipeline<M> {
         self.plugins.iter().map(|p| p.metadata()).collect()
     }
 
-    pub async fn run_specific_plugin(&self, plugin_name: &str, target: &TargetHost) -> Result<Vec<Finding>> {
+    pub async fn run_specific_plugin(
+        &self,
+        plugin_name: &str,
+        target: &TargetHost,
+    ) -> Result<Vec<Finding>> {
         if let Some(plugin) = self.plugins.iter().find(|p| p.name() == plugin_name) {
             plugin.scan(target).await
         } else {
@@ -270,7 +337,10 @@ impl<M: ExecutorMode> Pipeline<M> {
     }
 
     pub fn get_c2_operators(&self) -> Vec<&dyn crate::core::orchestrator::c2::C2Operator> {
-        self.plugins.iter().filter_map(|p| p.as_c2_operator()).collect()
+        self.plugins
+            .iter()
+            .filter_map(|p| p.as_c2_operator())
+            .collect()
     }
 
     pub fn get_plugins_ref(&self) -> &[Box<dyn ScannerPlugin>] {

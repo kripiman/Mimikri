@@ -5,8 +5,8 @@
 mod tests {
     use mimikri::utils::api_budget::ApiBudgetRegistry;
     use mimikri::utils::api_cache::ApiCache;
-    use mimikri::utils::shodan_keyring::ShodanKeyring;
     use mimikri::utils::config::Config;
+    use mimikri::utils::shodan_keyring::ShodanKeyring;
 
     #[test]
     fn test_singletons_mem_only_no_panic() {

@@ -1,13 +1,10 @@
 /// handlers/credentials.rs — Item 18 from PLAN v3 6.B mapping table.
 /// pub async fn get_credentials (L457–L524)
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{extract::State, Json};
 use std::sync::Arc;
 
-use super::super::state::{DashboardState, ValidatedOperator};
 use super::super::models::CredentialStatus;
+use super::super::state::{DashboardState, ValidatedOperator};
 
 pub async fn get_credentials(
     _auth: ValidatedOperator,

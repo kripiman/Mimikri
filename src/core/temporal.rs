@@ -1,8 +1,8 @@
 use crate::models::TargetHost;
-use sqlx::PgPool;
 use anyhow::Result;
-use tracing::info;
+use sqlx::PgPool;
 use std::sync::Arc;
+use tracing::info;
 
 /// Compares current scan findings against historical findings for the same target host.
 /// Modifies the `is_new` flag on `finding.enrichment` if the finding is discovered for the first time.
@@ -21,11 +21,11 @@ pub async fn diff_target(pool: &PgPool, target: &mut TargetHost) -> Result<()> {
     // to avoid "everything is old" bugs.
     let historical_finding_ids: Vec<String> = sqlx::query_scalar(
         r#"
-        SELECT f.id 
-        FROM findings f 
-        JOIN targets t ON f.target_id = t.id 
+        SELECT f.id
+        FROM findings f
+        JOIN targets t ON f.target_id = t.id
         WHERE t.host = $1 AND t.scan_id < $2
-        "#
+        "#,
     )
     .bind(&target.host)
     .bind(current_scan_id)
@@ -33,7 +33,7 @@ pub async fn diff_target(pool: &PgPool, target: &mut TargetHost) -> Result<()> {
     .await?;
 
     let mut new_count = 0;
-    
+
     // We must clone the Vec to mutate the findings because Arc<Vec> is immutable.
     let mut modified_findings = (*target.findings).clone();
 
@@ -48,7 +48,10 @@ pub async fn diff_target(pool: &PgPool, target: &mut TargetHost) -> Result<()> {
     target.findings = Arc::new(modified_findings);
 
     if new_count > 0 {
-        info!("🕒 TEMPORAL DIFF: Discovered {} NEW findings for {}", new_count, target.host);
+        info!(
+            "🕒 TEMPORAL DIFF: Discovered {} NEW findings for {}",
+            new_count, target.host
+        );
     }
 
     Ok(())

@@ -1,22 +1,25 @@
-use crate::models::{Finding, TargetHost};
-use crate::core::pipeline::Pipeline;
-use crate::core::ai::{TieredAIRouter, AdaptiveContext};
-use crate::core::approval_gate::ApprovalGate;
-use anyhow::{Result, Context};
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use tracing::{info, warn, error};
-use std::collections::HashSet;
 use super::budget::TokenBudget;
-use crate::utils::executor::{StealthExecutor, ExecutorMode};
-use crate::models::{EngagementState, Objective, ObjectivePhase};
-use crate::plugins::detection_evasion::jitter::EvasionJitter;
-use crate::utils::config::Config;
 use super::correlation::ce_state_path;
 use super::SwarmConfig;
+use crate::core::ai::{AdaptiveContext, TieredAIRouter};
+use crate::core::approval_gate::ApprovalGate;
+use crate::core::pipeline::Pipeline;
+use crate::models::{EngagementState, Objective, ObjectivePhase};
+use crate::models::{Finding, TargetHost};
+use crate::plugins::detection_evasion::jitter::EvasionJitter;
+use crate::utils::config::Config;
+use crate::utils::executor::{ExecutorMode, StealthExecutor};
+use anyhow::{Context, Result};
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use tracing::{error, info, warn};
 
 #[derive(Clone)]
-pub struct SwarmOrchestrator<M: ExecutorMode = crate::utils::executor::GhostMode> where M: Clone {
+pub struct SwarmOrchestrator<M: ExecutorMode = crate::utils::executor::GhostMode>
+where
+    M: Clone,
+{
     pub router: Arc<TieredAIRouter>,
     pub pipeline: Arc<Pipeline<M>>,
     pub approval_gate: Arc<ApprovalGate>,
@@ -49,22 +52,37 @@ impl<M: ExecutorMode> SwarmOrchestrator<M> {
         }
     }
 
-    pub fn clone_for_spawn(&self) -> Self { self.clone() }
+    pub fn clone_for_spawn(&self) -> Self {
+        self.clone()
+    }
 
-    pub async fn run(&self, initial_target: TargetHost, sink_tx: mpsc::Sender<TargetHost>) -> Result<()> {
-        info!("🐝 SWARM: Iniciando enjambre multi-agente para {}", initial_target.host);
+    pub async fn run(
+        &self,
+        initial_target: TargetHost,
+        sink_tx: mpsc::Sender<TargetHost>,
+    ) -> Result<()> {
+        info!(
+            "🐝 SWARM: Iniciando enjambre multi-agente para {}",
+            initial_target.host
+        );
         self.initialize_engagement(&initial_target).await?;
-        if !self.verify_egress(&initial_target).await? { return Ok(()); }
+        if !self.verify_egress(&initial_target).await? {
+            return Ok(());
+        }
         let state_path = ce_state_path();
         let (ce_inner, fired_chains) = self.setup_correlation_engine(&state_path);
         let correlation_engine = Arc::new(tokio::sync::Mutex::new(ce_inner));
-        let inventory = Arc::new(crate::core::orchestrator::swarm::inventory::SwarmInventory::new());
+        let inventory =
+            Arc::new(crate::core::orchestrator::swarm::inventory::SwarmInventory::new());
         let (discovery_tx, mut discovery_rx) = mpsc::channel(100);
         self.spawn_discovery(initial_target.clone(), discovery_tx.clone());
         let mut seen_finding_ids = HashSet::new();
         let adaptive_context = AdaptiveContext::default();
         let config = Config::from_env();
-        let jitter = Arc::new(EvasionJitter::new(config.post_exploit_min_delay_ms, config.post_exploit_max_delay_ms));
+        let jitter = Arc::new(EvasionJitter::new(
+            config.post_exploit_min_delay_ms,
+            config.post_exploit_max_delay_ms,
+        ));
         let mut join_set = tokio::task::JoinSet::new();
         let agent_semaphore = Arc::new(tokio::sync::Semaphore::new(10));
         let max_pending_tasks = 50;
@@ -72,8 +90,8 @@ impl<M: ExecutorMode> SwarmOrchestrator<M> {
         while let Some(finding) = discovery_rx.recv().await {
             while join_set.len() >= max_pending_tasks {
                 if let Some(res) = join_set.join_next().await {
-                     match res {
-                        Ok(Ok(_)) => {},
+                    match res {
+                        Ok(Ok(_)) => {}
                         Ok(Err(e)) => error!("🐝 SWARM [Agent Error]: {}", e),
                         Err(e) => error!("🐝 SWARM [Task Error]: Join error: {}", e),
                     }
@@ -82,7 +100,10 @@ impl<M: ExecutorMode> SwarmOrchestrator<M> {
                 }
             }
             if self.budget.is_exhausted() {
-                warn!("💸 SWARM: Presupuesto de tokens agotado ({}). Deteniendo enjambre.", self.budget.current_total());
+                warn!(
+                    "💸 SWARM: Presupuesto de tokens agotado ({}). Deteniendo enjambre.",
+                    self.budget.current_total()
+                );
                 break;
             }
             self.process_finding(
@@ -98,9 +119,11 @@ impl<M: ExecutorMode> SwarmOrchestrator<M> {
                 &adaptive_context,
                 &initial_target,
                 &sink_tx,
-            ).await?;
+            )
+            .await?;
         }
-        self.finalize_and_persist(&mut join_set, &correlation_engine, &fired_chains).await?;
+        self.finalize_and_persist(&mut join_set, &correlation_engine, &fired_chains)
+            .await?;
         Ok(())
     }
 
@@ -108,7 +131,12 @@ impl<M: ExecutorMode> SwarmOrchestrator<M> {
         let mut state_lock = self.engagement.lock().await;
         if state_lock.is_none() {
             let mut state = EngagementState::new("ENG-001", "Default Mission");
-            let root_obj = Objective::new("OBJ-ROOT", "Initial Exploration", &format!("Explore target {}", initial_target.host), ObjectivePhase::Recon);
+            let root_obj = Objective::new(
+                "OBJ-ROOT",
+                "Initial Exploration",
+                &format!("Explore target {}", initial_target.host),
+                ObjectivePhase::Recon,
+            );
             state.opplan.add_objective(root_obj)?;
             *state_lock = Some(state);
             info!("🗺️ SWARM [V15]: OPPLAN Framework initialized.");
@@ -131,10 +159,19 @@ impl<M: ExecutorMode> SwarmOrchestrator<M> {
         Ok(true)
     }
 
-    fn setup_correlation_engine(&self, state_path: &std::path::Path) -> (crate::core::correlation::CorrelationEngine, Arc<dashmap::DashSet<String>>) {
-        let ce = crate::core::correlation::CorrelationEngine::load(state_path).unwrap_or_else(|_| crate::core::correlation::CorrelationEngine::new());
+    fn setup_correlation_engine(
+        &self,
+        state_path: &std::path::Path,
+    ) -> (
+        crate::core::correlation::CorrelationEngine,
+        Arc<dashmap::DashSet<String>>,
+    ) {
+        let ce = crate::core::correlation::CorrelationEngine::load(state_path)
+            .unwrap_or_else(|_| crate::core::correlation::CorrelationEngine::new());
         let fired_chains = Arc::new(dashmap::DashSet::new());
-        for chain in &ce.fired_chains { fired_chains.insert(chain.clone()); }
+        for chain in &ce.fired_chains {
+            fired_chains.insert(chain.clone());
+        }
         (ce, fired_chains)
     }
 
@@ -153,7 +190,7 @@ impl<M: ExecutorMode> SwarmOrchestrator<M> {
     ) -> Result<()> {
         while let Some(res) = join_set.join_next().await {
             match res {
-                Ok(Ok(_)) => {},
+                Ok(Ok(_)) => {}
                 Ok(Err(e)) => error!("🐝 SWARM [Agent Error]: {}", e),
                 Err(e) => {
                     if e.is_panic() {
@@ -164,15 +201,26 @@ impl<M: ExecutorMode> SwarmOrchestrator<M> {
                 }
             }
         }
-        info!("🛑 SWARM: Enjambre finalizado. Consumo total: {} tokens.", self.budget.current_total());
+        info!(
+            "🛑 SWARM: Enjambre finalizado. Consumo total: {} tokens.",
+            self.budget.current_total()
+        );
         let mut ce = correlation_engine.lock().await;
         ce.fired_chains.clear();
-        for chain in fired_chains.iter() { ce.fired_chains.insert(chain.key().clone()); }
+        for chain in fired_chains.iter() {
+            ce.fired_chains.insert(chain.key().clone());
+        }
         let state_path = ce_state_path();
         if let Err(e) = ce.save(&state_path) {
-            warn!("⚠️ SWARM: Failed to persist Correlation Engine state: {}", e);
+            warn!(
+                "⚠️ SWARM: Failed to persist Correlation Engine state: {}",
+                e
+            );
         } else {
-            info!("💾 SWARM: Correlation Engine state persisted to {:?} (HMAC verified)", state_path);
+            info!(
+                "💾 SWARM: Correlation Engine state persisted to {:?} (HMAC verified)",
+                state_path
+            );
         }
         Ok(())
     }

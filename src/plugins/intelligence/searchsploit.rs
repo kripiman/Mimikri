@@ -1,11 +1,11 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category};
+use crate::models::{Category, Finding, Severity, TargetHost};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
 use std::process::Stdio;
 use tokio::process::Command;
+use tracing::info;
 pub struct SearchsploitScanner {
     binary_path: String,
 }
@@ -18,9 +18,7 @@ impl Default for SearchsploitScanner {
 impl SearchsploitScanner {
     pub fn new() -> Self {
         let path = detect_tool("searchsploit");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 #[async_trait]
@@ -28,7 +26,7 @@ impl ScannerPlugin for SearchsploitScanner {
     fn name(&self) -> &'static str {
         "searchsploit"
     }
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -43,7 +41,9 @@ impl ScannerPlugin for SearchsploitScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: false, ..Default::default() }
+            poc_mode: false,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::VulnerabilityScanning]
@@ -56,10 +56,14 @@ impl ScannerPlugin for SearchsploitScanner {
         // Searchsploit identifies exploits based on service versions found in other findings
         // We iterate through existing findings to find software versions
         for finding in target.findings.iter() {
-            if finding.category == Category::TechnologyStack || finding.category == Category::Vulnerability {
+            if finding.category == Category::TechnologyStack
+                || finding.category == Category::Vulnerability
+            {
                 // Try to extract software name from description or evidence
                 // This is a simplified heuristic
-                let query: String = if let Some(product) = finding.evidence.primary
+                let query: String = if let Some(product) = finding
+                    .evidence
+                    .primary
                     .as_ref()
                     .and_then(|e| e.data.get("product"))
                 {
@@ -77,7 +81,10 @@ impl ScannerPlugin for SearchsploitScanner {
                         .stderr(Stdio::null())
                         .spawn();
                     if let Ok(c) = child {
-                        let output = c.wait_with_output().await.context("Failed to wait for searchsploit")?;
+                        let output = c
+                            .wait_with_output()
+                            .await
+                            .context("Failed to wait for searchsploit")?;
                         let content = String::from_utf8_lossy(&output.stdout);
                         if let Ok(json_data) = serde_json::from_str::<serde_json::Value>(&content) {
                             if let Some(results) = json_data.get("RESULTS_EXPLOIT") {

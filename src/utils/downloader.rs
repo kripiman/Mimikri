@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use tracing::info;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tracing::info;
 
 pub async fn ensure_hysteria_binary() -> Result<PathBuf> {
     let bin_dir = dirs::home_dir()
         .context("Could not find home directory")?
         .join(".local/share/osintultimate/bin");
-    
+
     if !bin_dir.exists() {
         fs::create_dir_all(&bin_dir).await?;
     }
@@ -19,19 +19,22 @@ pub async fn ensure_hysteria_binary() -> Result<PathBuf> {
     }
 
     info!("🛡️ Hysteria binary not found locally. Starting auto-download...");
-    
+
     // In a real scenario, we'd detect OS/arch. For this implementation, we assume Linux x86_64 as per user OS metadata.
     let url = "https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-amd64";
-    
-    let response = reqwest::get(url).await
+
+    let response = reqwest::get(url)
+        .await
         .context("Failed to download Hysteria binary")?;
-    
-    let content = response.bytes().await
+
+    let content = response
+        .bytes()
+        .await
         .context("Failed to read Hysteria binary content")?;
-    
+
     let mut file = fs::File::create(&bin_path).await?;
     file.write_all(&content).await?;
-    
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -40,6 +43,9 @@ pub async fn ensure_hysteria_binary() -> Result<PathBuf> {
         fs::set_permissions(&bin_path, perms).await?;
     }
 
-    info!("🚀 Hysteria binary downloaded and verified at: {}", bin_path.display());
+    info!(
+        "🚀 Hysteria binary downloaded and verified at: {}",
+        bin_path.display()
+    );
     Ok(bin_path)
 }

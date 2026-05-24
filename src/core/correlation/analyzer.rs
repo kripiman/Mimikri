@@ -1,6 +1,6 @@
+use super::{AttackGraph, AttackPath};
 use crate::models::Category;
 use std::collections::HashSet;
-use super::{AttackGraph, AttackPath};
 
 /// Sovereign-grade Attack Path Analyzer.
 /// Decoupled from CorrelationEngine to handle complex graph traversals.
@@ -25,7 +25,11 @@ impl<'a> GraphAnalyzer<'a> {
             }
         }
 
-        paths.sort_by(|a, b| b.total_cvss.partial_cmp(&a.total_cvss).unwrap_or(std::cmp::Ordering::Equal));
+        paths.sort_by(|a, b| {
+            b.total_cvss
+                .partial_cmp(&a.total_cvss)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         paths
     }
 
@@ -44,13 +48,23 @@ impl<'a> GraphAnalyzer<'a> {
 
     fn is_root_node(&self, node_id: &str) -> bool {
         if let Some(node) = self.graph.nodes.get(node_id) {
-            matches!(node.core.category, Category::Recon | Category::NetworkPort | Category::TechnologyStack)
+            matches!(
+                node.core.category,
+                Category::Recon | Category::NetworkPort | Category::TechnologyStack
+            )
         } else {
             false
         }
     }
 
-    fn dfs_paths(&self, current: &str, current_path: &mut Vec<String>, all_paths: &mut Vec<AttackPath>, visited: &mut HashSet<String>, depth: usize) {
+    fn dfs_paths(
+        &self,
+        current: &str,
+        current_path: &mut Vec<String>,
+        all_paths: &mut Vec<AttackPath>,
+        visited: &mut HashSet<String>,
+        depth: usize,
+    ) {
         current_path.push(current.to_string());
         visited.insert(current.to_string());
 
@@ -78,8 +92,10 @@ impl<'a> GraphAnalyzer<'a> {
     }
 
     fn record_path(&self, current_path: &Vec<String>, all_paths: &mut Vec<AttackPath>) {
-        if current_path.is_empty() { return; }
-        
+        if current_path.is_empty() {
+            return;
+        }
+
         let mut total_cvss = 0.0;
         let mut desc_parts = Vec::new();
 
@@ -89,9 +105,9 @@ impl<'a> GraphAnalyzer<'a> {
                 desc_parts.push(format!("{:?}", node.core.category));
             }
         }
-        
+
         if !current_path.is_empty() {
-             total_cvss /= current_path.len() as f32;
+            total_cvss /= current_path.len() as f32;
         }
 
         all_paths.push(AttackPath {

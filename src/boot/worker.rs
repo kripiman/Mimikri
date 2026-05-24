@@ -1,23 +1,30 @@
 use crate::boot::cli::Args;
-use mimikri::models::{TargetHost, TargetStatus};
-use mimikri::core::engine::{RedTeamEngine, app::EngineConfig};
-use mimikri::core::sink::{MultiSink, PostgresSink};
+use anyhow::{Context, Result};
 use mimikri::core::capability_layer::ScanLayer;
+use mimikri::core::engine::{app::EngineConfig, RedTeamEngine};
+use mimikri::core::sink::{MultiSink, PostgresSink};
+use mimikri::models::{TargetHost, TargetStatus};
 use mimikri::utils::config::Config;
-use tracing::{info, error};
-use anyhow::{Result, Context};
-use std::time::Duration;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
+use tracing::{error, info};
 
 pub async fn run_worker_mode(args: &Args) -> Result<()> {
     let cli_scope_id = Arc::new(args.scope_id.clone().unwrap_or_default());
-    let db_url = args.postgres_url.as_ref().context("Postgres URL is required for worker mode (--postgres-url)")?;
-    let node_id = args.node_id.clone().unwrap_or_else(|| {
-        format!("node-{}", std::process::id())
-    });
+    let db_url = args
+        .postgres_url
+        .as_ref()
+        .context("Postgres URL is required for worker mode (--postgres-url)")?;
+    let node_id = args
+        .node_id
+        .clone()
+        .unwrap_or_else(|| format!("node-{}", std::process::id()));
 
-    info!("🐝 [Worker] Starting in distributed mode. Node ID: {}", node_id);
+    info!(
+        "🐝 [Worker] Starting in distributed mode. Node ID: {}",
+        node_id
+    );
     let pool = sqlx::PgPool::connect(db_url).await?;
 
     // Register node
@@ -35,22 +42,22 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
     info!("🛡️ [Worker] ApiBudgetRegistry initialized (DB-backed).");
     info!("🛡️ [Worker] ApiCache initialized (DB-backed).");
     info!("🛡️ [Worker] ShodanKeyring initialized.");
-    
+
     let semaphore = Arc::new(tokio::sync::Semaphore::new(args.concurrency.max(1)));
-    
+
     loop {
         // Wait until we have a permit before pulling a job.
         let permit = semaphore.clone().acquire_owned().await.unwrap();
 
         // Poll for a job
         let job: Option<(i32, String, String, serde_json::Value)> = sqlx::query_as(
-            "UPDATE scan_queue SET status = 'claimed', claimed_by = $1, updated_at = NOW() 
+            "UPDATE scan_queue SET status = 'claimed', claimed_by = $1, updated_at = NOW()
              WHERE id = (
-                 SELECT id FROM scan_queue 
-                 WHERE status = 'pending' 
-                 ORDER BY priority DESC, created_at ASC 
+                 SELECT id FROM scan_queue
+                 WHERE status = 'pending'
+                 ORDER BY priority DESC, created_at ASC
                  LIMIT 1 FOR UPDATE SKIP LOCKED
-             ) RETURNING id, host, target_type, tactical_context"
+             ) RETURNING id, host, target_type, tactical_context",
         )
         .bind(&node_id)
         .fetch_optional(&pool)
@@ -58,7 +65,7 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
 
         if let Some((id, host, target_type, tactical_context)) = job {
             info!("📦 [Worker] Claimed job {}: {} ({})", id, host, target_type);
-            
+
             let pool_clone = pool.clone();
             let _node_id_clone = node_id.clone();
             let args_clone = args.clone();
@@ -68,7 +75,7 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
 
             tokio::spawn(async move {
                 let _permit = permit; // Keep permit alive until task finishes
-                
+
                 // Re-use engine setup logic from main
                 let engine_config = EngineConfig {
                     concurrency: args_clone.concurrency,
@@ -91,11 +98,18 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
                     intigriti_token: utils_config_clone.intigriti_token.clone(),
                     bb_program_handle: utils_config_clone.bb_program_handle.clone(),
                     scripts: args_clone.scripts.clone(),
-                    dns_servers: args_clone.dns_servers.as_ref().map(|s| s.split(',').map(|i| i.trim().to_string()).collect()),
+                    dns_servers: args_clone
+                        .dns_servers
+                        .as_ref()
+                        .map(|s| s.split(',').map(|i| i.trim().to_string()).collect()),
                     doh: args_clone.doh,
-                    proxies: args_clone.proxies.as_ref().map(|s| s.split(',').map(|i| i.trim().to_string()).collect()),
+                    proxies: args_clone
+                        .proxies
+                        .as_ref()
+                        .map(|s| s.split(',').map(|i| i.trim().to_string()).collect()),
                     plugins_dir: args_clone.plugins_dir.clone(),
-                    max_layer: ScanLayer::from_str(&args_clone.max_layer).unwrap_or(ScanLayer::Scanning),
+                    max_layer: ScanLayer::from_str(&args_clone.max_layer)
+                        .unwrap_or(ScanLayer::Scanning),
                     dashboard_port: args_clone.dashboard,
                     readiness_timeout: std::time::Duration::from_secs(60),
                     proxy_mode: utils_config_clone.proxy_mode,
@@ -110,7 +124,9 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
                     rebuff_api_token: utils_config_clone.rebuff_api_token.clone(),
                     dashboard_tx: None,
                     dashboard_targets: None,
-                    clairvoyance_wordlist_path: utils_config_clone.clairvoyance_wordlist_path.clone(),
+                    clairvoyance_wordlist_path: utils_config_clone
+                        .clairvoyance_wordlist_path
+                        .clone(),
                     shuffledns_resolvers_path: utils_config_clone.shuffledns_resolvers_path.clone(),
                     shuffledns_wordlist_path: utils_config_clone.shuffledns_wordlist_path.clone(),
                     ssrfmap_path: utils_config_clone.ssrfmap_path.clone(),
@@ -130,13 +146,14 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
                 };
 
                 let engine = RedTeamEngine::from_config(engine_config, &utils_config_clone);
-                
+
                 let target = TargetHost {
                     host: host.clone(),
                     ip: None,
                     resolved_ip: None,
                     status: TargetStatus::Pending,
-                    target_type: serde_json::from_str(&format!("\"{}\"", target_type)).unwrap_or(mimikri::models::TargetType::Web),
+                    target_type: serde_json::from_str(&format!("\"{}\"", target_type))
+                        .unwrap_or(mimikri::models::TargetType::Web),
                     file_path: None,
                     user: None,
                     findings: Arc::new(Vec::new()),
@@ -145,7 +162,7 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
                     extra_data: Arc::new(serde_json::json!({})),
                     version: 0,
                     skip_heavy_scan: false,
-                    scan_id: None, 
+                    scan_id: None,
                     scope_id: (*cli_scope_id_clone).clone(),
                 };
 
@@ -154,9 +171,12 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
                 match postgres_init {
                     Ok(ps) => {
                         multi_sink.add(Box::new(ps));
-                        
+
                         // Add BountySink if credentials present
-                        if utils_config_clone.h1_api_key.is_some() || utils_config_clone.bugcrowd_api_key.is_some() || utils_config_clone.intigriti_token.is_some() {
+                        if utils_config_clone.h1_api_key.is_some()
+                            || utils_config_clone.bugcrowd_api_key.is_some()
+                            || utils_config_clone.intigriti_token.is_some()
+                        {
                             multi_sink.add(Box::new(mimikri::core::sink::BountySink::new(
                                 utils_config_clone.h1_username.clone(),
                                 utils_config_clone.h1_api_key.clone(),
@@ -167,14 +187,17 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
                         }
 
                         let target_stream = Box::pin(futures::stream::once(async move { target }));
-                        match engine.run_autopilot(target_stream, Box::new(multi_sink)).await {
+                        match engine
+                            .run_autopilot(target_stream, Box::new(multi_sink))
+                            .await
+                        {
                             Ok(_) => {
                                 info!("✅ [Worker] Completed job {}", id);
                                 let _ = sqlx::query("UPDATE scan_queue SET status = 'completed', updated_at = NOW() WHERE id = $1")
                                     .bind(id)
                                     .execute(&pool_clone)
                                     .await;
-                            },
+                            }
                             Err(e) => {
                                 error!("❌ [Worker] Job {} failed: {}", id, e);
                                 let _ = sqlx::query("UPDATE scan_queue SET status = 'failed', updated_at = NOW() WHERE id = $1")
@@ -185,7 +208,10 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
                         }
                     }
                     Err(e) => {
-                        error!("❌ [Worker] Job {} failed to initialize PostgresSink: {}", id, e);
+                        error!(
+                            "❌ [Worker] Job {} failed to initialize PostgresSink: {}",
+                            id, e
+                        );
                         let _ = sqlx::query("UPDATE scan_queue SET status = 'failed', updated_at = NOW() WHERE id = $1")
                             .bind(id)
                             .execute(&pool_clone)
@@ -196,10 +222,10 @@ pub async fn run_worker_mode(args: &Args) -> Result<()> {
         } else {
             // Release permit if no job was found
             drop(permit);
-            
+
             // No jobs, sleep
             tokio::time::sleep(Duration::from_secs(5)).await;
-            
+
             // Keep-alive for worker node
             let _ = sqlx::query("UPDATE workers SET last_seen = NOW() WHERE id = $1")
                 .bind(&node_id)

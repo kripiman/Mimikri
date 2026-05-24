@@ -1,12 +1,12 @@
+use crate::core::approval_gate::ApprovalGate;
+use crate::core::capability_layer::ScanLayerPolicy;
+use crate::core::orchestrator::swarm::inventory::SwarmInventory;
+use crate::models::constants::{FINDING_SSRF, PLUGIN_CLOUD_METADATA};
+use crate::models::{Finding, TargetHost};
+use crate::plugins::ScannerPlugin;
+use dashmap::DashSet;
 use std::sync::Arc;
 use tracing::info;
-use dashmap::DashSet;
-use crate::models::{TargetHost, Finding};
-use crate::models::constants::{FINDING_SSRF, PLUGIN_CLOUD_METADATA};
-use crate::plugins::ScannerPlugin;
-use crate::core::capability_layer::ScanLayerPolicy;
-use crate::core::approval_gate::ApprovalGate;
-use crate::core::orchestrator::swarm::inventory::SwarmInventory;
 
 pub async fn run_reactive_logic(
     target: &TargetHost,
@@ -18,7 +18,7 @@ pub async fn run_reactive_logic(
 ) -> Vec<Finding> {
     let fired_chains: DashSet<String> = DashSet::new();
     let rules = crate::core::reactive_engine::get_all_rules();
-    
+
     let ctx = crate::core::reactive_engine::ReactiveContext {
         findings: all_findings,
         target,
@@ -29,25 +29,33 @@ pub async fn run_reactive_logic(
         inventory: Some(inventory),
     };
 
-    let mut extra_findings = crate::core::reactive_engine::evaluate(
-        &rules,
-        ctx,
-    ).await;
+    let mut extra_findings = crate::core::reactive_engine::evaluate(&rules, ctx).await;
 
     // SSRF -> Cloud Metadata Trigger
-    let ssrf_hit = all_findings.iter().find(|f| f.core.id == FINDING_SSRF).cloned();
+    let ssrf_hit = all_findings
+        .iter()
+        .find(|f| f.core.id == FINDING_SSRF)
+        .cloned();
     if let Some(ssrf_f) = ssrf_hit {
         if fired_chains.insert(format!("{}::{}", ssrf_f.core.id, PLUGIN_CLOUD_METADATA)) {
             if let Some(cloud_meta) = plugins.iter().find(|p| p.name() == PLUGIN_CLOUD_METADATA) {
-                if !layer_policy.needs_approval(cloud_meta.metadata().layer) || approval_gate.is_approved(cloud_meta.name()).await {
+                if !layer_policy.needs_approval(cloud_meta.metadata().layer)
+                    || approval_gate.is_approved(cloud_meta.name()).await
+                {
                     info!("🔱 V15 SOVEREIGN: SSRF detected! Triggering reactive Cloud Metadata extraction for {}", target.host);
-                    
-                    let tool_name = ssrf_f.evidence.primary.as_ref()
+
+                    let tool_name = ssrf_f
+                        .evidence
+                        .primary
+                        .as_ref()
                         .and_then(|e| e.data.get("tool"))
                         .and_then(|t| t.as_str());
 
                     let vuln_url = if tool_name == Some("ssrfmap") {
-                         ssrf_f.evidence.primary.as_ref()
+                        ssrf_f
+                            .evidence
+                            .primary
+                            .as_ref()
                             .and_then(|e| e.data.get("url"))
                             .and_then(|u| u.as_str())
                             .map(|s| s.to_string())

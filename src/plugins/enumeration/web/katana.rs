@@ -1,12 +1,12 @@
-use crate::plugins::{ScannerPlugin, Capability};
-use crate::models::{TargetHost, Finding, Severity, Category, FINDING_KATANA_ENDPOINT};
+use crate::models::{Category, Finding, Severity, TargetHost, FINDING_KATANA_ENDPOINT};
+use crate::plugins::{Capability, ScannerPlugin};
 use crate::utils::tool_detection::detect_tool;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
-use tracing::info;
+use serde::Deserialize;
 use std::process::Stdio;
 use tokio::process::Command;
-use serde::Deserialize;
+use tracing::info;
 
 #[derive(Debug, Deserialize)]
 struct KatanaResult {
@@ -39,9 +39,7 @@ impl Default for KatanaScanner {
 impl KatanaScanner {
     pub fn new() -> Self {
         let path = detect_tool("katana");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -51,8 +49,7 @@ impl ScannerPlugin for KatanaScanner {
         crate::models::PLUGIN_KATANA
     }
 
-    
-        fn metadata(&self) -> crate::plugins::PluginMetadata {
+    fn metadata(&self) -> crate::plugins::PluginMetadata {
         crate::plugins::PluginMetadata {
             name: self.name().to_string(),
             description: "Automated security analysis using this plugin.".to_string(),
@@ -67,7 +64,9 @@ impl ScannerPlugin for KatanaScanner {
             exploit_difficulty: crate::plugins::RiskLevel::Medium,
             blackarch_category: None,
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
     fn capabilities(&self) -> Vec<Capability> {
         vec![Capability::WebFuzzing, Capability::ServiceDiscovery]
@@ -76,7 +75,6 @@ impl ScannerPlugin for KatanaScanner {
     async fn check_dependencies(&self) -> Result<bool> {
         Ok(crate::utils::check_tool_availability("katana").await)
     }
-
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         info!("KatanaScanner: launching scan against {}", target.host);
@@ -88,7 +86,8 @@ impl ScannerPlugin for KatanaScanner {
         };
 
         let output = Command::new(&self.binary_path)
-            .arg("-u").arg(&url)
+            .arg("-u")
+            .arg(&url)
             .arg("-jsonl")
             .arg("-silent")
             .stdin(Stdio::null())
@@ -108,12 +107,15 @@ impl ScannerPlugin for KatanaScanner {
                         FINDING_KATANA_ENDPOINT,
                         Category::Recon,
                         Severity::Info,
-                        &format!("Discovered endpoint: {} [{}]", res.request.endpoint, res.request.method),
+                        &format!(
+                            "Discovered endpoint: {} [{}]",
+                            res.request.endpoint, res.request.method
+                        ),
                         serde_json::json!({
                             "method": res.request.method,
                             "endpoint": res.request.endpoint,
                             "status_code": res.response.and_then(|r| r.status_code),
-                        })
+                        }),
                     ));
                 }
             }

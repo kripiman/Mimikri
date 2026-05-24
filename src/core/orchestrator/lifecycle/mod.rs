@@ -1,5 +1,5 @@
-pub mod state;
 pub mod shutdown;
+pub mod state;
 
-pub use state::{Orchestrator, OrchestratorConfig};
 pub use shutdown::ShutdownManager;
+pub use state::{Orchestrator, OrchestratorConfig};

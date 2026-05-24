@@ -1,15 +1,15 @@
 use crate::boot::cli::Args;
-use mimikri::models::TargetHost;
-use mimikri::core::factory::EngineFactory;
-use mimikri::core::engine::{RedTeamEngine, app::EngineConfig};
-use mimikri::core::capability_layer::ScanLayer;
-use mimikri::utils::config::Config;
-use mimikri::plugins::reporting::platform_client::PlatformClient;
-use mimikri::models::ReportPlatform;
-use tracing::{info, error};
 use anyhow::Result;
+use mimikri::core::capability_layer::ScanLayer;
+use mimikri::core::engine::{app::EngineConfig, RedTeamEngine};
+use mimikri::core::factory::EngineFactory;
+use mimikri::models::ReportPlatform;
+use mimikri::models::TargetHost;
+use mimikri::plugins::reporting::platform_client::PlatformClient;
+use mimikri::utils::config::Config;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{error, info};
 
 pub async fn dispatch(args: Args) -> Result<()> {
     if args.worker {
@@ -17,11 +17,15 @@ pub async fn dispatch(args: Args) -> Result<()> {
     }
 
     // --- ENGINE INITIALIZATION ---
-    let (hw, auto_concurrency, _soft_limit, _hard_limit) = EngineFactory::detect_infrastructure_limits();
+    let (hw, auto_concurrency, _soft_limit, _hard_limit) =
+        EngineFactory::detect_infrastructure_limits();
     let utils_config = Config::from_env();
-    
+
     let concurrency = if args.concurrency == 10 || args.concurrency > auto_concurrency {
-        info!("Adjusting concurrency to {} based on detected hardware profile.", auto_concurrency);
+        info!(
+            "Adjusting concurrency to {} based on detected hardware profile.",
+            auto_concurrency
+        );
         auto_concurrency
     } else {
         args.concurrency
@@ -40,11 +44,24 @@ pub async fn dispatch(args: Args) -> Result<()> {
     };
 
     info!("🚀 Mimikri Core v0.1.0 starting...");
-    info!("Hardware Detected: {:?} (Cores: {}, RAM: {}MB)", hw.infra_type, hw.cores, hw.ram_mb);
-    info!("Infrastructure limits: Soft={}MB, Hard={}MB", utils_config.soft_memory_limit_mb, utils_config.hard_memory_limit_mb);
+    info!(
+        "Hardware Detected: {:?} (Cores: {}, RAM: {}MB)",
+        hw.infra_type, hw.cores, hw.ram_mb
+    );
+    info!(
+        "Infrastructure limits: Soft={}MB, Hard={}MB",
+        utils_config.soft_memory_limit_mb, utils_config.hard_memory_limit_mb
+    );
 
-    let proxies: Vec<String> = args.proxies.as_ref()
-        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+    let proxies: Vec<String> = args
+        .proxies
+        .as_ref()
+        .map(|s| {
+            s.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
     let max_layer = match args.max_layer.to_lowercase().as_str() {
@@ -57,7 +74,8 @@ pub async fn dispatch(args: Args) -> Result<()> {
         _ => ScanLayer::Scanning,
     };
 
-    let (dashboard_findings_tx, _) = tokio::sync::broadcast::channel::<mimikri::models::Finding>(1024);
+    let (dashboard_findings_tx, _) =
+        tokio::sync::broadcast::channel::<mimikri::models::Finding>(1024);
     let dashboard_targets = std::sync::Arc::new(dashmap::DashMap::<String, TargetHost>::new());
 
     let engine_config = EngineConfig {
@@ -73,9 +91,16 @@ pub async fn dispatch(args: Args) -> Result<()> {
         decoy: args.decoy.clone(),
         ports: args.ports.clone(),
         vuln_scan: args.vuln_scan,
-        dns_servers: args.dns_servers.as_ref().map(|s| s.split(',').map(|ip| ip.trim().to_string()).collect()),
+        dns_servers: args
+            .dns_servers
+            .as_ref()
+            .map(|s| s.split(',').map(|ip| ip.trim().to_string()).collect()),
         doh: args.doh,
-        proxies: if proxies.is_empty() { None } else { Some(proxies) },
+        proxies: if proxies.is_empty() {
+            None
+        } else {
+            Some(proxies)
+        },
         plugins_dir: args.plugins_dir.clone(),
         dashboard_port: args.dashboard,
         max_layer,
@@ -120,29 +145,38 @@ pub async fn dispatch(args: Args) -> Result<()> {
     };
 
     let engine = RedTeamEngine::from_config(engine_config.clone(), &utils_config);
-    
+
     // --- SCOPE SYNCHRONIZATION (V15.1) ---
-    if std::env::var("SCOPE_SYNC").map(|v| v == "true").unwrap_or(false) {
+    if std::env::var("SCOPE_SYNC")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         if let Some(ref h1_key) = engine_config.h1_api_key {
-            let policy_file = engine_config.policy_file.clone().unwrap_or_else(|| "policy.json".to_string());
+            let policy_file = engine_config
+                .policy_file
+                .clone()
+                .unwrap_or_else(|| "policy.json".to_string());
             let mut syncer = mimikri::core::policy::scope_syncer::ScopeSyncer::new(
                 engine.policy(),
                 std::path::PathBuf::from(policy_file),
             );
-            
+
             // Register HackerOne client
             let h1_client = PlatformClient::new(
                 ReportPlatform::HackerOne,
                 h1_key.clone(),
                 engine_config.h1_username.clone(),
             );
-            syncer.add_client(h1_client, engine_config.h1_username.clone().unwrap_or_default());
+            syncer.add_client(
+                h1_client,
+                engine_config.h1_username.clone().unwrap_or_default(),
+            );
 
             info!("🔱 V15.1 SCOPE: Initializing scope synchronization...");
             if let Err(e) = syncer.sync().await {
                 error!("❌ V15.1 SCOPE: Initial sync failed: {}", e);
             }
-            
+
             // Periodic sync every 4 hours
             let syncer_loop = Arc::new(syncer);
             tokio::spawn(async move {
@@ -157,7 +191,9 @@ pub async fn dispatch(args: Args) -> Result<()> {
 
     crate::boot::stealth::init(&engine, &args, &utils_config).await?;
 
-    let sink = crate::boot::sink_setup::build_multi_sink(&args, &engine_config, &utils_config, &engine).await?;
+    let sink =
+        crate::boot::sink_setup::build_multi_sink(&args, &engine_config, &utils_config, &engine)
+            .await?;
 
     // --- DASHBOARD ---
     let (injection_tx, injection_rx) = tokio::sync::mpsc::channel::<TargetHost>(100);
@@ -167,11 +203,13 @@ pub async fn dispatch(args: Args) -> Result<()> {
         &engine,
         dashboard_findings_tx,
         dashboard_targets,
-        injection_tx
-    ).await;
+        injection_tx,
+    )
+    .await;
 
     // --- TARGETS ---
-    let target_hosts = crate::boot::targets::build_target_stream(&args, &utils_config, injection_rx).await?;
+    let target_hosts =
+        crate::boot::targets::build_target_stream(&args, &utils_config, injection_rx).await?;
 
     // --- EXECUTION ---
     if args.autonomous {
@@ -181,7 +219,9 @@ pub async fn dispatch(args: Args) -> Result<()> {
     }
 
     // --- FINALIZATION ---
-    mimikri::utils::generate_report(&args.jsonl_output, &args.html_output).await.ok();
+    mimikri::utils::generate_report(&args.jsonl_output, &args.html_output)
+        .await
+        .ok();
 
     Ok(())
 }

@@ -1,9 +1,9 @@
-use crate::models::{TargetHost, ScanMetadata};
 use super::DataSink;
+use crate::models::{ScanMetadata, TargetHost};
 use anyhow::{Context, Result};
-use tokio::io::AsyncWriteExt;
-use std::path::PathBuf;
 use async_trait::async_trait;
+use std::path::PathBuf;
+use tokio::io::AsyncWriteExt;
 
 /// A DataSink that writes results as JSON Lines to a file.
 /// This guarantees O(1) memory usage by flushing results as they arrive.
@@ -23,10 +23,10 @@ impl JsonlSink {
             .open(&path)
             .await
             .context("JsonlSink: Failed to open output file")?;
-            
+
         Ok(Self { file, path })
     }
-    
+
     pub fn path(&self) -> &std::path::Path {
         &self.path
     }
@@ -37,19 +37,23 @@ impl DataSink for JsonlSink {
     async fn write(&mut self, target: &TargetHost) -> Result<()> {
         let json = serde_json::to_string(target)
             .context("JsonlSink: Failed to serialize TargetHost to JSON")?;
-            
+
         let mut scrubbed_json = crate::core::ai::scrubber::SCRUBBER.scrub(&json);
         // Ensure NewLine is appended for JSONL format
         scrubbed_json.push('\n');
-        
+
         // Write out the serialized byte buffer
-        self.file.write_all(scrubbed_json.as_bytes())
+        self.file
+            .write_all(scrubbed_json.as_bytes())
             .await
             .context("JsonlSink: Failed to write bytes to JSONL file")?;
-            
+
         // QA-011: Trade-off — flush per-write ensures crash-durability but reduces throughput.
-        self.file.flush().await.context("JsonlSink: Failed to flush to disk")?;
-            
+        self.file
+            .flush()
+            .await
+            .context("JsonlSink: Failed to flush to disk")?;
+
         Ok(())
     }
 
@@ -61,9 +65,12 @@ impl DataSink for JsonlSink {
         self.file.flush().await?;
         Ok(())
     }
-    
+
     async fn close(&mut self) -> Result<()> {
-        self.file.flush().await.context("JsonlSink: Failed to flush file content to disk")?;
+        self.file
+            .flush()
+            .await
+            .context("JsonlSink: Failed to flush file content to disk")?;
         Ok(())
     }
 }

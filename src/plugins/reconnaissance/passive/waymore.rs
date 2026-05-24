@@ -2,15 +2,15 @@
 // 🔧 Waymore: URL discovery from multiple archive sources
 // ⚡ Async wrapper for waymore (successor to waybackurls/gau)
 
-use crate::plugins::{ScannerPlugin, Capability, PluginMetadata, TargetType, RiskLevel};
-use crate::models::{TargetHost, Finding, Severity, Category, PLUGIN_WAYMORE, FINDING_WAYMORE_URL};
+use crate::models::{Category, Finding, Severity, TargetHost, FINDING_WAYMORE_URL, PLUGIN_WAYMORE};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin, TargetType};
 use crate::utils::tool_detection::detect_tool;
-use async_trait::async_trait;
 use anyhow::Result;
-use tracing::{info, warn};
+use async_trait::async_trait;
 use std::process::Stdio;
-use tokio::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
+use tracing::{info, warn};
 
 pub struct WaymoreScanner {
     binary_path: String,
@@ -25,9 +25,7 @@ impl Default for WaymoreScanner {
 impl WaymoreScanner {
     pub fn new() -> Self {
         let path = detect_tool("waymore");
-        Self {
-            binary_path: path,
-        }
+        Self { binary_path: path }
     }
 }
 
@@ -64,14 +62,17 @@ impl ScannerPlugin for WaymoreScanner {
     }
 
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
-        info!("🔍 WAYMORE: Fetching historical endpoints for {}", target.host);
+        info!(
+            "🔍 WAYMORE: Fetching historical endpoints for {}",
+            target.host
+        );
         let mut findings = Vec::new();
 
         // Run waymore to get URLs
         // -n: don't download files, just get URLs
         // -mode U: URL mode
         // -oU: output URLs file
-        
+
         let output = match tokio::time::timeout(
             Duration::from_secs(300),
             Command::new(&self.binary_path)
@@ -84,33 +85,46 @@ impl ScannerPlugin for WaymoreScanner {
                 .arg("-") // Output to stdout
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .output()
-        ).await {
+                .output(),
+        )
+        .await
+        {
             Ok(Ok(o)) => o,
             _ => {
-                warn!("⚠️ WAYMORE: Execution failed or timed out for {}", target.host);
+                warn!(
+                    "⚠️ WAYMORE: Execution failed or timed out for {}",
+                    target.host
+                );
                 return Ok(findings);
             }
         };
 
         let content = String::from_utf8_lossy(&output.stdout);
-        let urls: Vec<String> = content.lines()
+        let urls: Vec<String> = content
+            .lines()
             .map(|l| l.trim().to_string())
             .filter(|l| !l.is_empty())
             .collect();
 
         if !urls.is_empty() {
-            findings.push(Finding::new(
-                FINDING_WAYMORE_URL,
-                Category::Recon,
-                Severity::Info,
-                &format!("Discovered {} historical endpoints via Waymore for {}", urls.len(), target.host),
-                serde_json::json!({
-                    "count": urls.len(),
-                    "sample": urls.iter().take(20).collect::<Vec<_>>(),
-                    "urls": urls, // Complete list for downstream consumption
-                })
-            ).with_blackarch_category("recon"));
+            findings.push(
+                Finding::new(
+                    FINDING_WAYMORE_URL,
+                    Category::Recon,
+                    Severity::Info,
+                    &format!(
+                        "Discovered {} historical endpoints via Waymore for {}",
+                        urls.len(),
+                        target.host
+                    ),
+                    serde_json::json!({
+                        "count": urls.len(),
+                        "sample": urls.iter().take(20).collect::<Vec<_>>(),
+                        "urls": urls, // Complete list for downstream consumption
+                    }),
+                )
+                .with_blackarch_category("recon"),
+            );
         }
 
         Ok(findings)

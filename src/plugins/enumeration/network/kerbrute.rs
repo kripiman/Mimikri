@@ -1,9 +1,12 @@
-use crate::plugins::{PluginMetadata, ScannerPlugin, Capability, RiskLevel};
-use crate::models::{TargetHost, TargetType, Finding, findings::{Category, Severity}};
-use crate::utils::tool_detection::check_tool_availability;
 use crate::core::capability_layer::ScanLayer;
+use crate::models::{
+    findings::{Category, Severity},
+    Finding, TargetHost, TargetType,
+};
+use crate::plugins::{Capability, PluginMetadata, RiskLevel, ScannerPlugin};
+use crate::utils::tool_detection::check_tool_availability;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
-use anyhow::{Result, Context};
 use std::env;
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -47,7 +50,9 @@ impl ScannerPlugin for KerbruteScanner {
             exploit_difficulty: RiskLevel::Low,
             blackarch_category: Some("recon".to_string()),
             is_destructive: false,
-            poc_mode: true, ..Default::default() }
+            poc_mode: true,
+            ..Default::default()
+        }
     }
 
     fn capabilities(&self) -> Vec<Capability> {
@@ -61,10 +66,11 @@ impl ScannerPlugin for KerbruteScanner {
     async fn scan(&self, target: &TargetHost) -> Result<Vec<Finding>> {
         // Validation: Must be AD target or have port 88 open
         let has_port_88 = target.findings.iter().any(|f| {
-            f.category == Category::NetworkPort 
-            && f.evidence.primary.as_ref().is_some_and(|ev| {
-                ev.data.get("port").and_then(|p| p.as_u64()) == Some(88)
-            })
+            f.category == Category::NetworkPort
+                && f.evidence
+                    .primary
+                    .as_ref()
+                    .is_some_and(|ev| ev.data.get("port").and_then(|p| p.as_u64()) == Some(88))
         });
 
         if target.target_type != TargetType::ActiveDirectory && !has_port_88 {
@@ -81,16 +87,21 @@ impl ScannerPlugin for KerbruteScanner {
         };
 
         let domain = target.host.clone();
-        
+
         // Pinned DC Address
         let dc_addr = target.target_addr().to_string();
 
-        info!("🛡️ [Kerbrute] Enumerating Kerberos users for domain: {} via DC: {}", domain, dc_addr);
+        info!(
+            "🛡️ [Kerbrute] Enumerating Kerberos users for domain: {} via DC: {}",
+            domain, dc_addr
+        );
 
         let output = Command::new("kerbrute")
             .arg("userenum")
-            .arg("-d").arg(&domain)
-            .arg("--dc").arg(&dc_addr)
+            .arg("-d")
+            .arg(&domain)
+            .arg("--dc")
+            .arg(&dc_addr)
             .arg(&wordlist)
             .output()
             .await
