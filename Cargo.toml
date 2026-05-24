@@ -105,7 +105,7 @@ tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
 # Networking & High Performance
 io-uring = "0.7"
 smoltcp = { version = "0.11", features = ["socket-tcp", "socket-raw", "socket-udp"] }
-siphasher = "0.3"
+siphasher = "1.0"
 aya = "0.13"
 socket2 = "0.5"
 tokio-socks = "0.5.2"
