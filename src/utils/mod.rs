@@ -1,0 +1,45 @@
+pub mod report_gen;
+pub mod bounty_exporter;
+pub mod config;
+pub mod common;
+pub mod liveness;
+pub mod telemetry;
+pub mod proxy; // Redirection to infrastructure/proxy.rs
+pub mod cvss;
+pub mod program_config;
+pub mod tool_detection;
+pub mod memory_monitor;
+pub mod jitter;
+pub mod process_guard;
+pub mod security;
+pub mod stealth_detect;
+pub mod stealth_http;
+pub mod executor;
+pub mod payload_server;
+pub mod downloader;
+pub mod output_filter;
+pub mod tone;
+pub mod deduplication;
+pub mod cve_cache;
+pub mod activity_log;
+pub mod transport;
+pub mod poc_generator;
+pub mod ja4;
+
+pub use security::{validate_target, is_ssrf_safe_host};
+pub use executor::StealthExecutor;
+pub use payload_server::PayloadServer;
+
+pub use liveness::LivenessChecker;
+pub use report_gen::generate_report;
+pub use telemetry::{init_telemetry, shutdown_telemetry};
+pub use crate::infrastructure::proxy::ProxyManager;
+pub use memory_monitor::MemoryMonitor;
+pub use jitter::JitterSleep;
+pub use process_guard::ExternalToolGuard;
+pub use tool_detection::{detect_tool, detect_tool_system, check_tool_availability, verify_tool_version};
+pub mod hardware_detection;
+pub use hardware_detection::{InfrastructureType, HardwareInfo, detect_infrastructure};
+pub mod api_cache;
+pub mod api_budget;
+pub mod shodan_keyring;

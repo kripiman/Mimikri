@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mimikri 4.0 | Command Center</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <div class="glass-bg"></div>
+    
+    <nav class="sidebar">
+        <div class="logo">
+            <img src="mimicry.png" alt="Mimikri Octopus" class="logo-img">
+            <h1>MIMIKRI<span>V4</span></h1>
+        </div>
+        <ul class="nav-links">
+            <li class="active" data-tab="overview">📡 Overview</li>
+            <li data-tab="graph">🕸️ Attack Graph</li>
+            <li data-tab="targets">🎯 Targets</li>
+            <li data-tab="findings">🔥 Findings</li>
+            <li data-tab="roi">📊 ROI Metrics</li>
+            <li data-tab="credentials">🔑 API Credentials</li>
+            <li data-tab="swarm">🐝 Swarm Monitor</li>
+            <li data-tab="approvals">⚖️ Approvals</li>
+            <li data-tab="launch">🚀 Launch Mission</li>
+            <li data-tab="export">📤 Export Report</li>
+            <li data-tab="ecosystem">🌐 Tactical Ecosystem</li>
+        </ul>
+        <div class="sidebar-status">
+            <div class="status-item">
+                <span class="dot pulse"></span> CORE ACTIVE
+            </div>
+        </div>
+    </nav>
+
+    <main class="content">
+        <header>
+            <div class="page-title">
+                <h2 id="tab-title">Operational Overview</h2>
+                <p id="tab-desc">Autonomous Red Team Execution Engine v4.0</p>
+            </div>
+            <div class="stats-row">
+                <div class="mini-card">
+                    <span class="label">RAM USAGE</span>
+                    <span class="value" id="stat-ram">0 MB</span>
+                </div>
+                <div class="mini-card">
+                    <span class="label">TOKEN BUDGET</span>
+                    <span class="value" id="stat-tokens">0 / 0</span>
+                </div>
+                <div class="mini-card">
+                    <span class="label">ACTIVE SANDBOXES</span>
+                    <span class="value" id="stat-containers">0</span>
+                </div>
+            </div>
+        </header>
+
+        <section id="tab-content">
+            <!-- Overview -->
+            <div class="tab-pane active" id="overview">
+                <div class="grid">
+                    <div class="card">
+                        <h3>Live Signal Stream</h3>
+                        <div class="stream-container" id="finding-stream">
+                            <div class="system-msg">Awaiting SSE handshake...</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h3>Telemetry</h3>
+                        <div class="resource-row">
+                            <span>Memory Pressure</span>
+                            <div class="progress-bar"><div class="fill" id="ram-fill" style="width: 0%"></div></div>
+                        </div>
+                        <div class="resource-row">
+                            <span>Token Consumption</span>
+                            <div class="progress-bar"><div class="fill" id="token-fill" style="width: 0%"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attack Graph -->
+            <div class="tab-pane" id="graph">
+                <div class="card" style="height: 100%;">
+                    <h3>Attack Correlation Graph</h3>
+                    <div id="attack-graph-canvas"></div>
+                </div>
+            </div>
+
+            <!-- Targets -->
+            <div class="tab-pane" id="targets">
+                <div class="card">
+                    <h3>Infrastructure Inventory</h3>
+                    <table id="target-table">
+                        <thead>
+                            <tr>
+                                <th>Host</th>
+                                <th>IP Address</th>
+                                <th>Status</th>
+                                <th>Risk Score</th>
+                                <th>Last Action</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Findings -->
+            <div class="tab-pane" id="findings">
+                <div class="card">
+                    <h3>Aggregated Findings</h3>
+                    <table id="finding-table">
+                        <thead>
+                            <tr>
+                                <th>Severity</th>
+                                <th>Title</th>
+                                <th>Target</th>
+                                <th>Tool</th>
+                                <th>Category</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Credentials -->
+            <div class="tab-pane" id="credentials">
+                <div class="card">
+                    <h3>API Key Health & Status</h3>
+                    <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:1.5rem">Monitor the status of external service integrations. Differentiates between missing, idle, and failed keys.</p>
+                    <table id="credentials-table">
+                        <thead>
+                            <tr>
+                                <th>Service</th>
+                                <th>Status</th>
+                                <th>Last Check</th>
+                                <th>Error Log</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ROI -->
+            <div class="tab-pane" id="roi">
+                <div class="grid">
+                    <div class="card">
+                        <h3>ROI Baseline Telemetry (Phase 0)</h3>
+                        <div class="stats-grid">
+                            <div class="mini-card">
+                                <span class="label">FINDINGS IN</span>
+                                <span class="value" id="roi-findings-in">0</span>
+                            </div>
+                            <div class="mini-card">
+                                <span class="label">FPF DROPS</span>
+                                <span class="value" id="roi-fpf-drops">0</span>
+                            </div>
+                            <div class="mini-card">
+                                <span class="label">KILL RATE</span>
+                                <span class="value" id="roi-kill-rate">0%</span>
+                            </div>
+                        </div>
+                        <div class="stats-grid" style="margin-top: 1rem;">
+                            <div class="mini-card">
+                                <span class="label">PREMIUM CALLS</span>
+                                <span class="value" id="roi-premium-calls">0</span>
+                            </div>
+                            <div class="mini-card">
+                                <span class="label">LOCAL CALLS</span>
+                                <span class="value" id="roi-local-calls">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h3>Program ROI Rankings (Phase 1)</h3>
+                        <table id="roi-table">
+                            <thead>
+                                <tr>
+                                    <th>Program Name</th>
+                                    <th>ROI Score</th>
+                                    <th>Potential</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Swarm -->
+            <div class="tab-pane" id="swarm">
+                <div class="card">
+                    <h3>Multi-Agent Swarm Status</h3>
+                    <div class="swarm-grid" id="swarm-container">
+                        <!-- Agents rendered here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Approvals -->
+            <div class="tab-pane" id="approvals">
+                <div class="card">
+                    <h3>Pending Authorization</h3>
+                    <div id="approvals-list">
+                        <!-- Pending requests -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Launch Mission -->
+            <div class="tab-pane" id="launch">
+                <div class="card">
+                    <h3>Launch Mission</h3>
+                    <form id="missionForm" style="display:grid;gap:0.8rem;max-width:600px">
+                        <label style="font-size:0.75rem;color:var(--text-dim)">TARGET DOMAIN
+                            <input id="m-target" placeholder="example.com" required
+                                style="display:block;width:100%;margin-top:4px;background:rgba(255,255,255,0.05);border:1px solid rgba(204,0,0,0.25);border-radius:6px;padding:0.5rem 0.7rem;color:#fff;font-family:'JetBrains Mono',monospace;font-size:0.8rem;box-sizing:border-box" />
+                        </label>
+                        <label style="font-size:0.75rem;color:var(--text-dim)">BUG BOUNTY PROGRAM
+                            <input id="m-program" placeholder="HackerOne - PayPal"
+                                style="display:block;width:100%;margin-top:4px;background:rgba(255,255,255,0.05);border:1px solid rgba(204,0,0,0.25);border-radius:6px;padding:0.5rem 0.7rem;color:#fff;font-family:'JetBrains Mono',monospace;font-size:0.8rem;box-sizing:border-box" />
+                        </label>
+                        <label style="font-size:0.75rem;color:var(--text-dim)">IN-SCOPE (one per line)
+                            <textarea id="m-inscope" placeholder="*.example.com&#10;api.example.com" rows="3"
+                                style="display:block;width:100%;margin-top:4px;background:rgba(255,255,255,0.05);border:1px solid rgba(204,0,0,0.25);border-radius:6px;padding:0.5rem 0.7rem;color:#fff;font-family:'JetBrains Mono',monospace;font-size:0.8rem;box-sizing:border-box;resize:vertical"></textarea>
+                        </label>
+                        <label style="font-size:0.75rem;color:var(--text-dim)">OUT-OF-SCOPE (one per line)
+                            <textarea id="m-outscope" placeholder="admin.example.com" rows="2"
+                                style="display:block;width:100%;margin-top:4px;background:rgba(255,255,255,0.05);border:1px solid rgba(204,0,0,0.25);border-radius:6px;padding:0.5rem 0.7rem;color:#fff;font-family:'JetBrains Mono',monospace;font-size:0.8rem;box-sizing:border-box;resize:vertical"></textarea>
+                        </label>
+                        <label style="font-size:0.75rem;color:var(--text-dim)">SCAN PROFILE
+                            <select id="m-profile" style="display:block;width:100%;margin-top:4px;background:rgba(10,10,10,0.9);border:1px solid rgba(204,0,0,0.25);border-radius:6px;padding:0.5rem 0.7rem;color:#fff;font-size:0.8rem;box-sizing:border-box">
+                                <option value="passive">🔍 Passive (OSINT only)</option>
+                                <option value="recon">🗺️ Recon (DNS + Ports)</option>
+                                <option value="standard" selected>⚡ Standard (OWASP + CVEs)</option>
+                                <option value="aggressive">💥 Aggressive (Full)</option>
+                                <option value="autonomous">🤖 Autonomous (AI Swarm)</option>
+                            </select>
+                        </label>
+                        <div style="display:grid;gap:0.5rem">
+                            <label style="font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer"><input type="checkbox" id="m-stealth" checked /> Stealth Mode</label>
+                            <label style="font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer"><input type="checkbox" id="m-vulnscan" checked /> CVE Scan (Nuclei + NVD)</label>
+                            <label style="font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer"><input type="checkbox" id="m-oob" checked /> OOB Testing (Interactsh)</label>
+                            <label style="font-size:0.8rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer"><input type="checkbox" id="m-swarm" /> Multi-Agent Swarm</label>
+                        </div>
+                        <label style="font-size:0.75rem;color:var(--text-dim)">CONCURRENCY: <span id="m-concval">20</span>
+                            <input type="range" id="m-concurrency" min="1" max="100" value="20"
+                                style="display:block;width:100%;margin-top:4px"
+                                oninput="document.getElementById('m-concval').textContent=this.value" />
+                        </label>
+                        <label style="font-size:0.75rem;color:var(--text-dim)">OPERATOR NOTES
+                            <textarea id="m-notes" placeholder="Focus on XSS in api. Do not delete data." rows="2"
+                                style="display:block;width:100%;margin-top:4px;background:rgba(255,255,255,0.05);border:1px solid rgba(204,0,0,0.25);border-radius:6px;padding:0.5rem 0.7rem;color:#fff;font-family:'JetBrains Mono',monospace;font-size:0.8rem;box-sizing:border-box;resize:vertical"></textarea>
+                        </label>
+                        <button type="submit" style="background:#cc0000;border:none;border-radius:6px;padding:0.75rem;color:#fff;font-size:0.9rem;font-weight:700;cursor:pointer">🚀 Launch Mission</button>
+                        <div id="m-result" style="font-size:0.8rem;display:none"></div>
+                    </form>
+                </div>
+            </div>
+            <!-- Export Report -->
+            <div class="tab-pane" id="export">
+                <div class="card">
+                    <h3>Bounty Report Exporter</h3>
+                    <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:1.5rem">Exports all High/Critical findings to platform-specific markdown. Downloads automatically.</p>
+                    <div style="display:flex;gap:1rem;flex-wrap:wrap">
+                        <button onclick="exportReport('h1')"
+                            style="background:#cc0000;border:none;border-radius:8px;padding:0.75rem 1.5rem;color:#fff;font-size:0.9rem;font-weight:700;cursor:pointer;min-width:160px">
+                            🐛 HackerOne
+                        </button>
+                        <button onclick="exportReport('bugcrowd')"
+                            style="background:#e65c00;border:none;border-radius:8px;padding:0.75rem 1.5rem;color:#fff;font-size:0.9rem;font-weight:700;cursor:pointer;min-width:160px">
+                            🔐 Bugcrowd
+                        </button>
+                        <button onclick="exportReport('intigriti')"
+                            style="background:#005fcc;border:none;border-radius:8px;padding:0.75rem 1.5rem;color:#fff;font-size:0.9rem;font-weight:700;cursor:pointer;min-width:160px">
+                            🏴 Intigriti
+                        </button>
+                    </div>
+                    <div id="export-status" style="margin-top:1rem;font-size:0.8rem;display:none"></div>
+                </div>
+            </div>
+
+            <!-- Ecosystem -->
+            <div class="tab-pane" id="ecosystem">
+                <div class="card">
+                    <h3>Tactical Dashboard Integrations</h3>
+                    <p style="font-size:0.8rem;color:var(--text-dim);margin-bottom:2rem">Direct access to the Mimikri auxiliary toolset. Links will open in a new tab.</p>
+                    
+                    <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));">
+                        <!-- Caido -->
+                        <div class="mini-card" style="cursor:pointer; transition: transform 0.2s; height: 160px; display:flex; flex-direction:column; justify-content:center; align-items:center; border-color: rgba(0, 163, 255, 0.3);" onclick="window.open('http://localhost:8080', '_blank')">
+                            <span class="label">TACTICAL ANALYST WORKBENCH</span>
+                            <span class="value" style="color:#00a3ff; font-size:1.4rem; margin-top:10px">CAIDO</span>
+                            <p style="font-size:0.7rem; color:var(--text-dim); margin-top:10px; text-align:center">Manual verification & proxy interception</p>
+                        </div>
+
+                        <!-- MobSF -->
+                        <div class="mini-card" style="cursor:pointer; transition: transform 0.2s; height: 160px; display:flex; flex-direction:column; justify-content:center; align-items:center; border-color: rgba(255, 140, 0, 0.3);" onclick="window.open('http://localhost:8000', '_blank')">
+                            <span class="label">MOBILE SECURITY FRAMEWORK</span>
+                            <span class="value" style="color:#ff8c00; font-size:1.4rem; margin-top:10px">MobSF</span>
+                            <p style="font-size:0.7rem; color:var(--text-dim); margin-top:10px; text-align:center">Static & Dynamic APK/IPA Analysis</p>
+                        </div>
+
+                        <!-- Add more here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal for Approval -->
+    <div id="modal-overlay">
+        <div class="modal">
+            <h3 id="modal-title">Approval Required</h3>
+            <p id="modal-desc"></p>
+            <div class="modal-actions">
+                <button id="btn-reject">Abort Action</button>
+                <button id="btn-approve" class="primary">Authorize Execution</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+<footer style="text-align:center; padding:10px; font-size:0.8rem; color:#666;">
+    mimikri (AGPL-3.0) — Source: <a href="https://github.com/kripiman/mimikri">github.com/kripiman/mimikri</a>
+  </footer>
+</body>
+</html>
